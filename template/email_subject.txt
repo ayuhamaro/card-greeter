@@ -1,0 +1,1 @@
+來自 {{ sender_name }} 的問候，很高興在「{{ event_name }}」認識你

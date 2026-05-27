@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>名片問候助理</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #1a1a2e;
+      --paper: #f4f1eb;
+      --accent: #c9622f;
+      --accent-light: #e8d5c9;
+      --muted: #7a7a8c;
+      --border: #d4cfc5;
+      --success: #2d6a4f;
+      --error: #9b2335;
+      --card-bg: #ffffff;
+      --font-serif: 'Noto Serif TC', serif;
+      --font-mono: 'DM Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-serif);
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--ink);
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      color: var(--paper);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .user-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid var(--accent);
+      object-fit: cover;
+    }
+
+    .user-name {
+      color: var(--paper);
+      font-size: 13px;
+      opacity: 0.85;
+      font-family: var(--font-mono);
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .btn-logout {
+      background: transparent;
+      border: 1px solid rgba(255,255,255,0.25);
+      color: rgba(255,255,255,0.65);
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      transition: all 0.2s;
+    }
+
+    .btn-logout:hover {
+      border-color: rgba(255,255,255,0.6);
+      color: #fff;
+    }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      padding: 28px 20px 40px;
+      max-width: 540px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* ── Step indicator ── */
+    .steps {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 32px;
+    }
+
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      background: var(--paper);
+      color: var(--muted);
+      transition: all 0.3s;
+      position: relative;
+      z-index: 1;
+    }
+
+    .step-label {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.3px;
+      transition: color 0.3s;
+    }
+
+    .step.active .step-num {
+      background: var(--ink);
+      border-color: var(--ink);
+      color: var(--paper);
+    }
+
+    .step.active .step-label {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .step.done .step-num {
+      background: var(--success);
+      border-color: var(--success);
+      color: #fff;
+    }
+
+    .step-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      margin-top: -18px;
+    }
+
+    /* ── Cards / Sections ── */
+    .section {
+      display: none;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .section.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--ink);
+    }
+
+    .section-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 24px;
+      line-height: 1.6;
+      font-family: var(--font-mono);
+    }
+
+    /* ── Form Elements ── */
+    .field {
+      margin-bottom: 18px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.5px;
+      color: var(--muted);
+      margin-bottom: 7px;
+      text-transform: uppercase;
+    }
+
+    .field input, .field textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 6px;
+      background: var(--card-bg);
+      font-size: 15px;
+      font-family: var(--font-serif);
+      color: var(--ink);
+      transition: border-color 0.2s;
+      appearance: none;
+    }
+
+    .field input:focus, .field textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* ── Camera area ── */
+    .camera-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: var(--ink);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    #camera-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .card-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .card-guide {
+      width: 80%;
+      aspect-ratio: 1.75/1;
+      border: 2px dashed rgba(201, 98, 47, 0.7);
+      border-radius: 8px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);
+    }
+
+    .guide-label {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.6);
+      color: rgba(255,255,255,0.8);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 4px 12px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    /* 拍照後的預覽圖 */
+    #captured-preview {
+      width: 100%;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: var(--font-serif);
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.3px;
+    }
+
+    .btn-primary {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #2d2d4e;
+      transform: translateY(-1px);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-accent {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-accent:hover:not(:disabled) {
+      background: #b5551e;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--muted);
+      border: 1.5px solid var(--border);
+      margin-top: 10px;
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--ink);
+      color: var(--ink);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .btn-row .btn {
+      flex: 1;
+    }
+
+    /* ── Card info display ── */
+    .card-info-grid {
+      background: var(--card-bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .card-info-row {
+      display: grid;
+      grid-template-columns: 90px 1fr;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+
+    .card-info-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .card-info-key {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .card-info-val {
+      font-size: 14px;
+      border: none;
+      background: transparent;
+      color: var(--ink);
+      width: 100%;
+      font-family: var(--font-serif);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .card-info-val:focus {
+      outline: none;
+      background: var(--accent-light);
+    }
+
+    /* ── Status / Toast ── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+      z-index: 999;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      max-width: calc(100vw - 40px);
+      text-align: center;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .toast.success {
+      background: var(--success);
+      color: #fff;
+    }
+
+    .toast.error {
+      background: var(--error);
+      color: #fff;
+    }
+
+    /* ── Loading overlay ── */
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(26,26,46,0.75);
+      z-index: 200;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .loading-overlay.show {
+      display: flex;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255,255,255,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      color: var(--paper);
+      font-family: var(--font-mono);
+      font-size: 14px;
+    }
+
+    /* ── Login gate ── */
+    #login-gate {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    .login-icon {
+      font-size: 52px;
+      margin-bottom: 20px;
+    }
+
+    .login-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .login-subtitle {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 32px;
+      line-height: 1.6;
+      font-family: var(--font-mono);
+    }
+
+    .btn-google {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--card-bg);
+      border: 1.5px solid var(--border);
+      color: var(--ink);
+      padding: 13px 28px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: var(--font-serif);
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .btn-google:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+    }
+
+    .google-icon {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* ── Success state ── */
+    .success-card {
+      background: var(--card-bg);
+      border: 1.5px solid #a3c9b4;
+      border-radius: 10px;
+      padding: 28px 24px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .success-icon { font-size: 40px; margin-bottom: 12px; }
+    .success-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--success);
+      margin-bottom: 8px;
+    }
+
+    .success-detail {
+      font-size: 13px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      line-height: 1.5;
+    }
+
+    /* ── Input file hidden ── */
+    #file-input { display: none; }
+
+    /* ── Hidden canvas for capture ── */
+    #capture-canvas { display: none; }
+  </style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">AI 正在識別名片…</div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">📇</div>
+    名片問候助理
+  </div>
+  <div class="user-area" id="user-area" style="display:none">
+    <img class="user-avatar" id="user-avatar" src="" alt="">
+    <span class="user-name" id="user-name"></span>
+    <button class="btn-logout" onclick="logout()">登出</button>
+  </div>
+</header>
+
+<!-- ── Login gate ── -->
+<div id="login-gate">
+  <div class="login-icon">📇</div>
+  <div class="login-title">名片問候助理</div>
+  <div class="login-subtitle">拍攝名片，一鍵寄出個人化問候信<br>專屬於你的新創交流工具</div>
+  <a href="/auth/login" class="btn-google">
+    <svg class="google-icon" viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+    </svg>
+    使用 Google 帳號登入
+  </a>
+</div>
+
+<!-- ── Main App (hidden until logged in) ── -->
+<main id="app" style="display:none">
+
+  <!-- Step indicator -->
+  <div class="steps">
+    <div class="step active" id="step-1">
+      <div class="step-num">1</div>
+      <div class="step-label">活動</div>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step-2">
+      <div class="step-num">2</div>
+      <div class="step-label">名片</div>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step-3">
+      <div class="step-num">3</div>
+      <div class="step-label">確認</div>
+    </div>
+    <div class="step-line"></div>
+    <div class="step" id="step-4">
+      <div class="step-num">✓</div>
+      <div class="step-label">完成</div>
+    </div>
+  </div>
+
+  <!-- ── STEP 1: Event name ── -->
+  <div class="section active" id="section-1">
+    <div class="section-title">今天參加什麼活動？</div>
+    <div class="section-subtitle">活動名稱會嵌入問候信的主旨與內文</div>
+    <div class="field">
+      <label>活動名稱</label>
+      <input type="text" id="event-name" placeholder="例如：2025 台北新創週 Demo Day"
+             autocomplete="off" maxlength="60">
+    </div>
+    <button class="btn btn-primary" onclick="goToStep2()">下一步</button>
+  </div>
+
+  <!-- ── STEP 2: Camera ── -->
+  <div class="section" id="section-2">
+    <div class="section-title">拍攝名片</div>
+    <div class="section-subtitle">對齊框線後拍照，AI 自動識別聯絡資訊</div>
+
+    <!-- Live camera preview -->
+    <div class="camera-wrapper" id="camera-wrapper">
+      <video id="camera-preview" autoplay muted playsinline></video>
+      <div class="card-overlay">
+        <div class="card-guide"></div>
+      </div>
+      <div class="guide-label">對齊名片至框線範圍內</div>
+    </div>
+
+    <!-- Captured image preview -->
+    <img id="captured-preview" alt="名片預覽">
+    <canvas id="capture-canvas"></canvas>
+
+    <button class="btn btn-accent" id="capture-btn" onclick="capturePhoto()">📷 拍照</button>
+    <div class="btn-row" id="retake-row" style="display:none">
+      <button class="btn btn-secondary" onclick="retakePhoto()">重新拍攝</button>
+      <button class="btn btn-primary" onclick="analyzeCard()">分析名片 →</button>
+    </div>
+
+    <!-- File upload fallback -->
+    <input type="file" id="file-input" accept="image/*" onchange="handleFileUpload(event)">
+    <button class="btn btn-secondary" style="margin-top:10px"
+            onclick="document.getElementById('file-input').click()">
+      📁 從相簿選取
+    </button>
+    <button class="btn btn-secondary" style="margin-top:6px" onclick="goToStep1()">← 返回</button>
+  </div>
+
+  <!-- ── STEP 3: Confirm & Edit ── -->
+  <div class="section" id="section-3">
+    <div class="section-title">確認名片資訊</div>
+    <div class="section-subtitle">可直接點擊欄位修正，確認後寄出問候信</div>
+
+    <div class="card-info-grid">
+      <div class="card-info-row">
+        <span class="card-info-key">姓名</span>
+        <input class="card-info-val" id="info-name" type="text" placeholder="無法識別，請手動填入">
+      </div>
+      <div class="card-info-row">
+        <span class="card-info-key">職稱</span>
+        <input class="card-info-val" id="info-title" type="text" placeholder="（選填）">
+      </div>
+      <div class="card-info-row">
+        <span class="card-info-key">Email</span>
+        <input class="card-info-val" id="info-email" type="email" placeholder="必填">
+      </div>
+      <div class="card-info-row">
+        <span class="card-info-key">公司</span>
+        <input class="card-info-val" id="info-company" type="text" placeholder="（選填）">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>活動名稱（可修改）</label>
+      <input type="text" id="confirm-event-name" readonly style="opacity:0.7">
+    </div>
+
+    <button class="btn btn-accent" onclick="sendEmail()">✉️ 寄出問候信</button>
+    <button class="btn btn-secondary" onclick="goToStep2Back()">← 重新拍攝</button>
+  </div>
+
+  <!-- ── STEP 4: Done ── -->
+  <div class="section" id="section-4">
+    <div class="success-card">
+      <div class="success-icon">🎉</div>
+      <div class="success-title">問候信已寄出！</div>
+      <div class="success-detail" id="success-detail"></div>
+    </div>
+    <button class="btn btn-primary" onclick="resetAll()">繼續掃描下一張名片</button>
+  </div>
+
+</main>
+
+<script>
+  // ─── State ────────────────────────────────────────────────
+  let capturedImageData = null;  // base64 data URL
+  let currentStream = null;
+
+  // ─── Init ─────────────────────────────────────────────────
+  async function init() {
+    const res = await fetch('/auth/me');
+    const data = await res.json();
+
+    if (data.logged_in) {
+      document.getElementById('login-gate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      document.getElementById('user-area').style.display = 'flex';
+      document.getElementById('user-name').textContent = data.name;
+      const avatar = document.getElementById('user-avatar');
+      if (data.picture) avatar.src = data.picture;
+      else avatar.style.display = 'none';
+    }
+  }
+
+  function logout() {
+    window.location.href = '/auth/logout';
+  }
+
+  // ─── Step navigation ──────────────────────────────────────
+  function setStep(n) {
+    for (let i = 1; i <= 4; i++) {
+      document.getElementById(`section-${i}`).classList.toggle('active', i === n);
+      const stepEl = document.getElementById(`step-${i}`);
+      stepEl.classList.toggle('active', i === n);
+      stepEl.classList.toggle('done', i < n);
+    }
+  }
+
+  function goToStep1() {
+    stopCamera();
+    setStep(1);
+  }
+
+  async function goToStep2() {
+    const name = document.getElementById('event-name').value.trim();
+    if (!name) { showToast('請輸入活動名稱', 'error'); return; }
+    setStep(2);
+    await startCamera();
+  }
+
+  function goToStep2Back() {
+    capturedImageData = null;
+    setStep(2);
+    // 重新開啟相機
+    document.getElementById('captured-preview').style.display = 'none';
+    document.getElementById('camera-wrapper').style.display = 'block';
+    document.getElementById('capture-btn').style.display = 'block';
+    document.getElementById('retake-row').style.display = 'none';
+    startCamera();
+  }
+
+  // ─── Camera ───────────────────────────────────────────────
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },  // 後鏡頭優先（手機）
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        }
+      });
+      currentStream = stream;
+      const video = document.getElementById('camera-preview');
+      video.srcObject = stream;
+    } catch (err) {
+      console.error('Camera error:', err);
+      showToast('無法存取相機，請使用「從相簿選取」', 'error');
+    }
+  }
+
+  function stopCamera() {
+    if (currentStream) {
+      currentStream.getTracks().forEach(t => t.stop());
+      currentStream = null;
+    }
+  }
+
+  function capturePhoto() {
+    const video = document.getElementById('camera-preview');
+    const canvas = document.getElementById('capture-canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    capturedImageData = canvas.toDataURL('image/jpeg', 0.92);
+    showCaptured();
+  }
+
+  function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      capturedImageData = e.target.result;
+      showCaptured();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function showCaptured() {
+    stopCamera();
+    document.getElementById('camera-wrapper').style.display = 'none';
+    document.getElementById('capture-btn').style.display = 'none';
+
+    const preview = document.getElementById('captured-preview');
+    preview.src = capturedImageData;
+    preview.style.display = 'block';
+    document.getElementById('retake-row').style.display = 'flex';
+  }
+
+  function retakePhoto() {
+    capturedImageData = null;
+    document.getElementById('captured-preview').style.display = 'none';
+    document.getElementById('camera-wrapper').style.display = 'block';
+    document.getElementById('capture-btn').style.display = 'block';
+    document.getElementById('retake-row').style.display = 'none';
+    startCamera();
+  }
+
+  // ─── API Calls ────────────────────────────────────────────
+  async function analyzeCard() {
+    if (!capturedImageData) {
+      showToast('請先拍攝名片', 'error');
+      return;
+    }
+
+    showLoading('AI 正在識別名片資訊…');
+
+    try {
+      const res = await fetch('/api/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_data: capturedImageData,
+          event_name: document.getElementById('event-name').value.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || '識別失敗');
+      }
+
+      const data = await res.json();
+      const card = data.card;
+
+      // 填入確認頁
+      document.getElementById('info-name').value = card.name || '';
+      document.getElementById('info-title').value = card.title || '';
+      document.getElementById('info-email').value = card.email || '';
+      document.getElementById('info-company').value = card.company || '';
+      document.getElementById('confirm-event-name').value = data.event_name;
+
+      stopCamera();
+      setStep(3);
+
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  async function sendEmail() {
+    const email = document.getElementById('info-email').value.trim();
+    if (!email || !email.includes('@')) {
+      showToast('請填入有效的 Email 地址', 'error');
+      document.getElementById('info-email').focus();
+      return;
+    }
+
+    showLoading('正在透過 Gmail 寄出問候信…');
+
+    try {
+      const res = await fetch('/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          card: {
+            name: document.getElementById('info-name').value.trim(),
+            title: document.getElementById('info-title').value.trim(),
+            email: email,
+            company: document.getElementById('info-company').value.trim(),
+          },
+          event_name: document.getElementById('confirm-event-name').value,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        // Token 過期
+        if (res.status === 401) {
+          showToast('Gmail 授權已過期，請重新登入', 'error');
+          setTimeout(() => window.location.href = '/auth/logout', 2000);
+          return;
+        }
+        throw new Error(err.detail || '寄信失敗');
+      }
+
+      const data = await res.json();
+      document.getElementById('success-detail').textContent =
+        `已寄出至 ${data.recipient_email}`;
+      setStep(4);
+
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  // ─── Reset ────────────────────────────────────────────────
+  function resetAll() {
+    capturedImageData = null;
+    document.getElementById('info-name').value = '';
+    document.getElementById('info-title').value = '';
+    document.getElementById('info-email').value = '';
+    document.getElementById('info-company').value = '';
+    document.getElementById('captured-preview').style.display = 'none';
+    document.getElementById('camera-wrapper').style.display = 'block';
+    document.getElementById('capture-btn').style.display = 'block';
+    document.getElementById('retake-row').style.display = 'none';
+    setStep(2);
+    startCamera();
+  }
+
+  // ─── UI helpers ───────────────────────────────────────────
+  function showLoading(text = '處理中…') {
+    document.getElementById('loading-text').textContent = text;
+    document.getElementById('loading-overlay').classList.add('show');
+  }
+
+  function hideLoading() {
+    document.getElementById('loading-overlay').classList.remove('show');
+  }
+
+  let toastTimer;
+  function showToast(msg, type = 'success') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `toast ${type} show`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.classList.remove('show');
+    }, 3500);
+  }
+
+  // ─── Enter key on step 1 ──────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('event-name').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') goToStep2();
+    });
+    init();
+  });
+</script>
+</body>
+</html>

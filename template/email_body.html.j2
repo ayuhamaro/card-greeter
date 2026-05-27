@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #ffffff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+      padding: 32px 40px;
+      color: #fff;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .header p {
+      margin: 8px 0 0;
+      font-size: 14px;
+      opacity: 0.85;
+    }
+    .body {
+      padding: 36px 40px;
+      line-height: 1.8;
+      font-size: 15px;
+    }
+    .body p {
+      margin: 0 0 18px;
+    }
+    .divider {
+      border: none;
+      border-top: 1px solid #eee;
+      margin: 28px 0;
+    }
+    .bio-section {
+      background: #f8f9fa;
+      border-left: 3px solid #1a73e8;
+      padding: 16px 20px;
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      color: #555;
+      line-height: 1.7;
+      white-space: pre-line;
+    }
+    .footer {
+      background: #f8f9fa;
+      padding: 20px 40px;
+      font-size: 13px;
+      color: #888;
+      text-align: center;
+      border-top: 1px solid #eee;
+    }
+    .highlight {
+      color: #1a73e8;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>很高興在「{{ event_name }}」認識你！</h1>
+      <p>來自 {{ sender_name }} 的問候</p>
+    </div>
+
+    <div class="body">
+      <p>嗨，親愛的 <span class="highlight">{{ recipient_name }}{% if recipient_title %} {{ recipient_title }}{% endif %}</span>，</p>
+
+      <p>
+        我是 <strong>{{ sender_name }}</strong>，很榮幸有機會在
+        <span class="highlight">{{ event_name }}</span> 認識你。
+        交流過後，想再次透過這封信表達我的誠意，也希望後續有更多機會深入交流。
+      </p>
+
+      <hr class="divider">
+
+      <p><strong>關於我：</strong></p>
+      <div class="bio-section">{{ sender_bio }}</div>
+
+      <hr class="divider">
+
+      <p>
+        希望很快就能有機會與
+        <span class="highlight">{{ company_name }}</span> 合作！
+        如有任何想法或合作機會，隨時歡迎回信給我。
+      </p>
+
+      <p>期待與你的下一次交流 🤝</p>
+
+      <p>
+        {{ sender_name }} 敬上
+      </p>
+    </div>
+
+    <div class="footer">
+      此信件由名片問候助理自動生成 · {{ event_name }}
+    </div>
+  </div>
+</body>
+</html>
