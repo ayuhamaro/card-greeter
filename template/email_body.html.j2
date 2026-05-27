@@ -55,7 +55,7 @@
       border-radius: 0 6px 6px 0;
       font-size: 14px;
       color: #555;
-      line-height: 1.7;
+      line-height: 1.5;
       white-space: pre-line;
     }
     .footer {
@@ -69,6 +69,9 @@
     .highlight {
       color: #1a73e8;
       font-weight: 600;
+    }
+    a{
+      color: #1a73e8;
     }
   </style>
 </head>
@@ -91,7 +94,7 @@
       <hr class="divider">
 
       <p><strong>關於我：</strong></p>
-      <div class="bio-section">{{ sender_bio }}</div>
+      <div class="bio-section">{{ sender_bio | safe }}</div>
 
       <hr class="divider">
 
@@ -109,7 +112,7 @@
     </div>
 
     <div class="footer">
-      此信件由名片問候助理自動生成 · {{ event_name }}
+        此信件由名片問候助理(<a href="https://github.com/ayuhamaro/card-greeter" target="_blank">GitHub Repo</a>)自動生成 · {{ event_name }}
     </div>
   </div>
 </body>

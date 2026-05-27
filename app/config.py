@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -15,13 +16,24 @@ class Settings(BaseSettings):
 
     # Sender identity
     sender_name: str
-    sender_bio: str
+    sender_bio_file: str  # 路徑指向 HTML 格式的自我介紹檔案
 
     # Access control
     allowed_email: str
 
     # App
     app_base_url: str = "http://localhost:8000"
+
+    @property
+    def sender_bio(self) -> str:
+        """讀取 HTML 自我介紹檔案，內容直接嵌入郵件樣板"""
+        path = Path(self.sender_bio_file)
+        if not path.exists():
+            raise FileNotFoundError(
+                f"sender_bio_file not found: {self.sender_bio_file}\n"
+                f"請確認檔案存在並檢查 .env 中的 SENDER_BIO_FILE 路徑。"
+            )
+        return path.read_text(encoding="utf-8").strip()
 
     class Config:
         env_file = ".env"
