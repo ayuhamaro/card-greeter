@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     # Session
     session_secret_key: str
+    # Token 加密金鑰（Fernet 32-byte URL-safe base64）
+    # 生成指令：python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    session_encrypt_key: str
 
     # Sender identity
     sender_name: str

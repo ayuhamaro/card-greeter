@@ -15,41 +15,25 @@ gmail_service = GmailService()
 
 @router.post("/send", response_model=SendResponse)
 async def send_greeting(
-    request: Request,
     payload: SendRequest,
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_auth),  # 已含解密後的 access_token / refresh_token
 ):
-    """
-    用確認過的名片資訊渲染郵件樣板，並透過 Gmail API 寄出
-    
-    Flow: CardInfo + event_name
-        → TemplateService.render_subject / render_body
-        → GmailService.send_email (OAuth2 token from session)
-    
-    INVARIANT: 此 endpoint 不會重新掃描名片，只負責寄信
-    """
     card = payload.card
     event_name = payload.event_name
 
-    # 驗證收件人 email
     if not card.email or "@" not in card.email:
         raise HTTPException(
             status_code=422,
             detail="Recipient email is missing or invalid. Please edit it before sending.",
         )
 
-    # 從 session 取得 Gmail token
-    session_user = request.session.get("user", {})
-    access_token = session_user.get("access_token")
-    refresh_token = session_user.get("refresh_token")
-    sender_email = session_user.get("email")
-
-    if not access_token:
-        raise HTTPException(status_code=401, detail="Gmail token not found. Please re-login.")
+    # token 直接從 require_auth 解密結果取得，不再碰 request.session
+    access_token = user["access_token"]
+    refresh_token = user.get("refresh_token")
+    sender_email = user["email"]
 
     logger.info(f"[{sender_email}] Sending greeting to {card.email} ({card.name})")
 
-    # 渲染樣板
     try:
         subject = template_service.render_subject(card, event_name)
         html_body = template_service.render_body(card, event_name)
@@ -57,7 +41,6 @@ async def send_greeting(
         logger.error(f"Template rendering error: {e}")
         raise HTTPException(status_code=500, detail="Failed to render email template.")
 
-    # 寄送
     try:
         await gmail_service.send_email(
             access_token=access_token,
