@@ -56,16 +56,17 @@ cp .env .env.example  # .env 為範本，複製後填入真實值
 
 填入以下欄位（參考 `.env` 內的註解）：
 
-| 欄位 | 說明 | 生成指令 |
-|---|---|---|
-| `OPENAI_API_KEY` | OpenAI API 金鑰 | — |
-| `GOOGLE_CLIENT_ID` | GCP OAuth2 Client ID | — |
-| `GOOGLE_CLIENT_SECRET` | GCP OAuth2 Client Secret | — |
-| `SESSION_SECRET_KEY` | Session 簽章金鑰 | `python -c "import secrets; print(secrets.token_hex(32))"` |
-| `SESSION_ENCRYPT_KEY` | Session Token 加密金鑰（Fernet） | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `SENDER_NAME` | 寄件人姓名 | — |
-| `SENDER_BIO_FILE` | 自我介紹 HTML 檔案的絕對路徑 | — |
-| `ALLOWED_EMAIL` | 唯一允許登入的 Gmail | — |
+| 欄位 | 說明                            | 生成指令 |
+|---|-------------------------------|---|
+| `OPENAI_API_KEY` | OpenAI API 金鑰                 | — |
+| `OPENAI_VISION_MODEL` | 名片識別模型（預設 `gpt-5.5`）          | — |
+| `GOOGLE_CLIENT_ID` | GCP OAuth2 Client ID          | — |
+| `GOOGLE_CLIENT_SECRET` | GCP OAuth2 Client Secret      | — |
+| `SESSION_SECRET_KEY` | Session 簽章金鑰                  | `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `SESSION_ENCRYPT_KEY` | Session Token 加密金鑰（Fernet）    | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `SENDER_NAME` | 寄件人姓名                         | — |
+| `SENDER_BIO_FILE` | 自我介紹 HTML 檔案的絕對路徑             | — |
+| `ALLOWED_EMAIL` | 唯一允許登入的 Gmail                 | — |
 | `APP_BASE_URL` | 本機開發用 `http://localhost:8000` | — |
 
 ### 4. 建立自我介紹檔案
@@ -88,6 +89,11 @@ vim /path/to/config/sender_bio.html
 ```
 
 `.env` 中的 `SENDER_BIO_FILE` 指向此檔案的絕對路徑。修改內容後無需重啟服務。
+
+> **模型相容性備註**
+> GPT-4 系列使用 `max_tokens`；GPT-5 系列（含 GPT-5.5）改用 `max_completion_tokens`。
+> 程式碼已統一使用 `max_completion_tokens`，支援 `gpt-4o`、`gpt-4o-mini`、`gpt-5.5`、`gpt-5.5-2026-04-23`。
+> 切換模型只需修改 `.env` 中的 `OPENAI_VISION_MODEL` 並重啟服務，不需要動程式碼。
 
 ### 5. 自訂郵件樣板
 
