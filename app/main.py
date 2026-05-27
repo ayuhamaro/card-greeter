@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.config import get_settings
 from app.routers import auth, card, mail
 
@@ -25,12 +27,20 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# ─── Proxy Headers Middleware ─────────────────────────────
+# 讓 Starlette 正確讀取 Nginx 傳遞的 X-Forwarded-Proto
+# 確保 https_only Session Cookie 在 SSL Termination 架構下正常運作
+# trusted_hosts="127.0.0.1"：只信任來自本機 Nginx 的 proxy header
+is_production = not settings.app_base_url.startswith("http://localhost")
+if is_production:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
+
 # ─── Session Middleware (itsdangerous 加密 cookie) ─────────
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret_key,
     max_age=60 * 60 * 8,    # 8 小時（一個活動的時長）
-    https_only=not settings.app_base_url.startswith("http://localhost"),
+    https_only=is_production,
     same_site="lax",
 )
 

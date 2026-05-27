@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.models import SendRequest, SendResponse
 from app.services.template_service import TemplateService
 from app.services.gmail_service import GmailService
-from app.routers.auth import require_auth
+from app.routers.auth import require_auth, update_vault
 from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
@@ -15,8 +15,9 @@ gmail_service = GmailService()
 
 @router.post("/send", response_model=SendResponse)
 async def send_greeting(
+    request: Request,
     payload: SendRequest,
-    user: dict = Depends(require_auth),  # 已含解密後的 access_token / refresh_token
+    user: dict = Depends(require_auth),
 ):
     card = payload.card
     event_name = payload.event_name
@@ -27,7 +28,6 @@ async def send_greeting(
             detail="Recipient email is missing or invalid. Please edit it before sending.",
         )
 
-    # token 直接從 require_auth 解密結果取得，不再碰 request.session
     access_token = user["access_token"]
     refresh_token = user.get("refresh_token")
     sender_email = user["email"]
@@ -42,7 +42,7 @@ async def send_greeting(
         raise HTTPException(status_code=500, detail="Failed to render email template.")
 
     try:
-        await gmail_service.send_email(
+        _, current_token = await gmail_service.send_email(
             access_token=access_token,
             sender_email=sender_email,
             recipient_email=card.email,
@@ -51,16 +51,25 @@ async def send_greeting(
             refresh_token=refresh_token,
         )
     except HttpError as e:
-        status_code = e.resp.status if hasattr(e, "resp") else 500
-        if status_code == 401:
+        http_status = e.resp.status if hasattr(e, "resp") else 500
+        # 精準提取 status code 與 error_details，避免 dump 整個 exception
+        # 防止 Raw HTTP response 中的敏感上下文寫入日誌
+        error_detail = e.error_details if hasattr(e, "error_details") else "no detail"
+        if http_status == 401:
             raise HTTPException(
                 status_code=401,
                 detail="Gmail token expired. Please logout and re-login.",
             )
-        logger.error(f"Gmail API HttpError: {e}")
+        logger.error(f"Gmail API failed. status={http_status}, detail={error_detail}")
         raise HTTPException(status_code=502, detail="Failed to send email via Gmail.")
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+    # ─── Token 刷新回寫 ───────────────────────────────────────
+    # SDK 自動刷新後 current_token 會與原始 access_token 不同
+    # 回寫確保下一次請求不會用到過期的 token
+    if current_token and current_token != access_token:
+        update_vault(request, current_token)
 
     return SendResponse(
         success=True,

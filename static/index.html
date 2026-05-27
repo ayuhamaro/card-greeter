@@ -637,7 +637,7 @@
     <div class="section-subtitle">活動名稱會嵌入問候信的主旨與內文</div>
     <div class="field">
       <label>活動名稱</label>
-      <input type="text" id="event-name" placeholder="例如：2026 台北新創週 Demo Day"
+      <input type="text" id="event-name" placeholder="例如：2025 台北新創週 Demo Day"
              autocomplete="off" maxlength="60">
     </div>
     <button class="btn btn-primary" onclick="goToStep2()">下一步</button>
@@ -725,6 +725,7 @@
   // ─── State ────────────────────────────────────────────────
   let capturedImageData = null;  // base64 data URL
   let currentStream = null;
+  let _userPicture = '';  // picture URL 快取於 JS 變數，不依賴 session cookie
 
   // ─── Init ─────────────────────────────────────────────────
   async function init() {
@@ -736,13 +737,28 @@
       document.getElementById('app').style.display = 'block';
       document.getElementById('user-area').style.display = 'flex';
       document.getElementById('user-name').textContent = data.name;
+
+      // picture 優先順序：
+      // 1. /me one-shot 回傳（登入後首次）→ 寫入 sessionStorage
+      // 2. sessionStorage 快取（頁面重整後）→ 直接讀取
+      // 3. 兩者皆無（新分頁 / 登出後）→ 隱藏大頭貼
       const avatar = document.getElementById('user-avatar');
-      if (data.picture) avatar.src = data.picture;
-      else avatar.style.display = 'none';
+      if (data.picture) {
+        _userPicture = data.picture;
+        sessionStorage.setItem('userPicture', _userPicture);
+      } else {
+        _userPicture = sessionStorage.getItem('userPicture') || '';
+      }
+      if (_userPicture) {
+        avatar.src = _userPicture;
+      } else {
+        avatar.style.display = 'none';
+      }
     }
   }
 
   function logout() {
+    sessionStorage.removeItem('userPicture');
     window.location.href = '/auth/logout';
   }
 

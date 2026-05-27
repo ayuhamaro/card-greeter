@@ -9,18 +9,17 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# INVARIANT: access_token 進入此 service 前，已通過 auth_router 驗證
-# INVARIANT: recipient_email 必須是有效格式（由 CardInfo.email 提供）
-
 
 class GmailService:
     def __init__(self):
         self.settings = get_settings()
 
-    def _build_gmail_client(self, access_token: str, refresh_token: str | None = None):
+    def _build_gmail_client(
+        self, access_token: str, refresh_token: str | None = None
+    ) -> tuple:
         """
         用 OAuth2 token 建立 Gmail API client
-        注意：token 存放在 session，不持久化到 DB（個人單用戶版本）
+        回傳 (service, creds) tuple，供呼叫端在寄信後檢查 token 是否被刷新
         """
         creds = Credentials(
             token=access_token,
@@ -30,7 +29,8 @@ class GmailService:
             client_secret=self.settings.google_client_secret,
             scopes=["https://www.googleapis.com/auth/gmail.send"],
         )
-        return build("gmail", "v1", credentials=creds, cache_discovery=False)
+        service = build("gmail", "v1", credentials=creds, cache_discovery=False)
+        return service, creds
 
     def _create_mime_message(
         self,
@@ -39,20 +39,15 @@ class GmailService:
         subject: str,
         html_body: str,
     ) -> str:
-        """
-        建立 MIME multipart 郵件，並轉換為 Gmail API 所需的 base64url 格式
-        """
         message = MIMEMultipart("alternative")
         message["From"] = f"{self.settings.sender_name} <{sender_email}>"
         message["To"] = recipient_email
         message["Subject"] = subject
 
-        # 純文字備援（部分郵件客戶端不支援 HTML）
         plain_text = "此郵件為 HTML 格式，請使用支援 HTML 的郵件客戶端查看。"
         message.attach(MIMEText(plain_text, "plain", "utf-8"))
         message.attach(MIMEText(html_body, "html", "utf-8"))
 
-        # Gmail API 要求 base64url encoding（不是標準 base64）
         encoded = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
         return encoded
 
@@ -64,19 +59,15 @@ class GmailService:
         subject: str,
         html_body: str,
         refresh_token: str | None = None,
-    ) -> dict:
+    ) -> tuple[dict, str]:
         """
         透過 Gmail API 寄送 HTML 郵件
-        
-        Args:
-            access_token: 使用者的 Gmail OAuth2 access token
-            sender_email: 寄件人 Gmail 地址
-            recipient_email: 收件人 email（從名片擷取）
-            subject: 渲染後的郵件主旨
-            html_body: 渲染後的 HTML 郵件內容
-            refresh_token: 可選，用於 token 自動更新
+
         Returns:
-            dict: Gmail API 回傳的 message object（含 id）
+            (result, current_access_token)
+            current_access_token：寄信後 SDK 實際使用的 token
+            若 SDK 在過程中自動刷新了 token，此值會與傳入的 access_token 不同
+            呼叫端應比對差異並決定是否回寫 session vault
         Raises:
             HttpError: Gmail API 呼叫失敗
             ValueError: recipient_email 為空
@@ -84,7 +75,7 @@ class GmailService:
         if not recipient_email:
             raise ValueError("Recipient email is required but was empty.")
 
-        service = self._build_gmail_client(access_token, refresh_token)
+        service, creds = self._build_gmail_client(access_token, refresh_token)
         encoded_message = self._create_mime_message(
             sender_email=sender_email,
             recipient_email=recipient_email,
@@ -100,7 +91,9 @@ class GmailService:
                 .execute()
             )
             logger.info(f"Email sent successfully. Message ID: {result.get('id')}")
-            return result
+            # creds.token 是 SDK 執行後實際使用的 token
+            # 若發生自動刷新，此值已更新為新 token
+            return result, creds.token
         except HttpError as e:
             logger.error(f"Gmail API error: {e}")
             raise

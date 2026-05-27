@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        # 防止 pydantic validation error 時將機密欄位值印入錯誤訊息
+        hide_input_in_errors = True
 
 
 @lru_cache()

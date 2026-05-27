@@ -54,10 +54,16 @@ async def login(request: Request):
 async def callback(request: Request):
     """
     Google OAuth2 callback
-    Session 結構：
-      user.email / user.name  → 明文（非敏感，供前端 /me 使用）
-      user.vault              → Fernet 加密的 {access_token, refresh_token}
-    picture URL 刻意不存入 session（避免撐爆 4KB Cookie 限制）
+
+    Session schema（最小化原則）：
+      user.email   → 明文，作為識別 key
+      user.name    → 明文，供 /me 回傳前端顯示
+      user.vault   → Fernet 加密的 {access_token, refresh_token}
+
+    picture URL 不存入 session：
+      - 長度 100~400 bytes，佔用寶貴的 Cookie 空間
+      - 改由登入時一次性回傳給前端，前端用 JS 變數快取
+      - 頁面重整後重新向 /me 取得（/me 會向 Google userinfo API 查詢）
     """
     try:
         token = await oauth.google.authorize_access_token(request)
@@ -80,20 +86,19 @@ async def callback(request: Request):
         )
 
     # ─── Token 加密後存入 session ─────────────────────────────
-    # vault：只存敏感 token，Fernet 加密
-    # 非敏感的 email / name 明文存放，供 /me 直接讀取
-    # picture URL 不存入 session（通常 200~400 bytes，省下寶貴 Cookie 空間）
     vault = _encrypt({
         "access_token": token.get("access_token", ""),
         "refresh_token": token.get("refresh_token", ""),
     })
 
+    # picture 不進 session，存入獨立的短期 key，供前端首次載入時取得
+    # 此 key 在 /me 被讀取後即刪除（one-shot），後續由前端 JS 變數維護
     request.session["user"] = {
         "email": user_email,
         "name": user_info.get("name", ""),
-        "picture": user_info.get("picture", ""),
         "vault": vault,
     }
+    request.session["_picture"] = user_info.get("picture", "")
 
     logger.info(f"User logged in: {user_email}")
     return RedirectResponse(url="/")
@@ -108,16 +113,46 @@ async def logout(request: Request):
 
 @router.get("/me")
 async def me(request: Request):
-    """回傳當前登入使用者資訊（前端用於判斷登入狀態）"""
+    """
+    回傳當前登入使用者資訊（前端用於判斷登入狀態）
+
+    picture 處理策略：
+      - 登入後首次呼叫：從 session["_picture"] 取得並刪除（one-shot），
+        前端收到後用 JS 變數快取，不再依賴 session
+      - 後續呼叫（頁面重整等）：session["_picture"] 已不存在，
+        回傳空字串，前端隱藏大頭貼或顯示預設圖示
+    """
     user = request.session.get("user")
     if not user:
         return JSONResponse({"logged_in": False})
+
+    # one-shot 取得 picture，取完即從 session 移除
+    picture = request.session.pop("_picture", "")
+
     return JSONResponse({
         "logged_in": True,
         "name": user["name"],
         "email": user["email"],
-        "picture": user["picture"],
+        "picture": picture,
     })
+
+
+def update_vault(request: Request, new_access_token: str) -> None:
+    """
+    Token 刷新後，將新的 access_token 加密回寫至 session vault
+    由 mail_router 在 Gmail SDK 自動刷新後呼叫
+    """
+    user = request.session.get("user")
+    if not user:
+        return
+    try:
+        current = _decrypt(user["vault"])
+        current["access_token"] = new_access_token
+        user["vault"] = _encrypt(current)
+        request.session["user"] = user
+        logger.info("Session vault updated with refreshed access_token.")
+    except Exception as e:
+        logger.warning(f"Failed to update vault after token refresh: {e}")
 
 
 # ─── Dependency：要求已登入，並解密 vault 回傳完整 user dict ──

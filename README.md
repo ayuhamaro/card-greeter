@@ -14,6 +14,12 @@ FastAPI Backend
 
 Frontend (SPA)
 └── static/index.html   手機相機拍攝 + 4步驟流程 UI
+
+Session 安全設計
+├── OAuth2 token     Fernet 對稱加密後存入 cookie（vault）
+├── picture URL      不存入 session，改由前端 sessionStorage 快取
+├── token 刷新       Gmail SDK 自動刷新後回寫 vault，無需重登
+└── SSL Termination  ProxyHeadersMiddleware 確保 Nginx 後方的 https 上下文正確傳遞
 ```
 
 ---
@@ -147,7 +153,9 @@ HTML 郵件樣板（`email_body.html.j2`）支援完整 HTML + CSS，
 ## 已知限制與備註
 
 - **Gmail token 有效期**：access token 約 1 小時，refresh token 在 Testing 模式下為 7 天；
-  token 過期時登出重登即可，系統會自動取得新 token
+  access token 過期時，Gmail SDK 會自動以 refresh token 換取新 token，
+  並即時回寫至 session vault，使用者無需重登；
+  refresh token 到期（7 天）時才需要登出重登
 - **名片識別限制**：模糊或強烈反光的名片識別準確度會下降，建議在光線充足的環境拍攝；
   識別結果可在確認頁手動修正後再寄出
 - **多使用者擴充**：目前白名單為單一 email；若未來需多人使用，改為 DB 白名單即可，
