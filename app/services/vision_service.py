@@ -36,6 +36,7 @@ class VisionService:
     def __init__(self):
         settings = get_settings()
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.model = settings.openai_vision_model
 
     def _strip_data_url_prefix(self, image_data: str) -> tuple[str, str]:
         """
@@ -50,7 +51,7 @@ class VisionService:
 
     async def extract_card_info(self, image_data: str) -> CardInfo:
         """
-        呼叫 GPT-4o Vision，從名片圖片擷取結構化聯絡資訊
+        呼叫 Vision LLM（由 .env OPENAI_VISION_MODEL 指定），從名片圖片擷取結構化聯絡資訊
         使用 Structured Outputs 強制 Schema 輸出，防止格式漂移與 prompt injection
 
         Args:
@@ -69,11 +70,11 @@ class VisionService:
         except Exception as e:
             raise ValueError(f"Invalid base64 image data: {e}")
 
-        logger.info("Calling GPT-4o Vision (Structured Outputs) for card extraction...")
+        logger.info(f"Calling {self.model} Vision (Structured Outputs) for card extraction...")
 
         response = await self.client.beta.chat.completions.parse(
-            model="gpt-4o",
-            max_tokens=500,
+            model=self.model,
+            max_completion_tokens=1000,  # GPT-5 系列使用 max_completion_tokens，取代舊版 max_tokens
             messages=[
                 {
                     "role": "user",

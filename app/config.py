@@ -6,6 +6,7 @@ from pathlib import Path
 class Settings(BaseSettings):
     # AI Vision
     openai_api_key: str
+    openai_vision_model: str = "gpt-5.5"
 
     # Google OAuth2
     google_client_id: str
