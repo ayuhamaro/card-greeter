@@ -91,6 +91,7 @@ async def callback(request: Request):
     request.session["user"] = {
         "email": user_email,
         "name": user_info.get("name", ""),
+        "picture": user_info.get("picture", ""),
         "vault": vault,
     }
 
@@ -115,6 +116,7 @@ async def me(request: Request):
         "logged_in": True,
         "name": user["name"],
         "email": user["email"],
+        "picture": user["picture"],
     })
 
 
