@@ -1,6 +1,8 @@
 # 名片問候助理 · Business Card Greeter
 
-新創交流活動的一鍵問候工具：拍名片 → AI 識別 → Gmail 寄信
+新創交流活動的一鍵問候工具：拍名片 → AI 識別 → 查詢公司 → Gmail 寄信
+
+由 **Claude** 實作、**Gemini** 擔任安全審查。
 
 ---
 
@@ -8,18 +10,25 @@
 
 ```
 FastAPI Backend
-├── /auth/*          Google OAuth2 登入 / 白名單驗證 / session
-├── /api/scan        GPT-4o Vision 名片 OCR（Structured Outputs）
-└── /api/send        Jinja2 渲染樣板 + Gmail API 寄信
+├── /auth/*                  Google OAuth2 登入 / 白名單驗證 / session
+├── /api/scan                GPT-5.5 Vision 名片 OCR（Structured Outputs）
+├── /api/company-lookup      Gemini Grounding 查詢公司業務資料（手動觸發）
+├── /api/collaboration-hint  GPT-5.5 生成合作機會描述
+└── /api/send                Jinja2 渲染樣板 + Gmail API 寄信
 
 Frontend (SPA)
-└── static/index.html   手機相機拍攝 + 4步驟流程 UI
+└── static/index.html   手機相機拍攝 + 4 步驟流程 UI
 
 Session 安全設計
-├── OAuth2 token     Fernet 對稱加密後存入 cookie（vault）
-├── picture URL      不存入 session，改由前端 sessionStorage 快取
-├── token 刷新       Gmail SDK 自動刷新後回寫 vault，無需重登
-└── SSL Termination  ProxyHeadersMiddleware 確保 Nginx 後方的 https 上下文正確傳遞
+├── OAuth2 token       Fernet 對稱加密後存入 cookie（vault）
+├── picture URL        不存入 session，改由前端 sessionStorage 快取
+├── token 刷新         Gmail SDK 自動刷新後回寫 vault，無需重登
+├── SSL Termination    ProxyHeadersMiddleware 確保 Nginx 後方的 https 上下文正確傳遞
+└── 全域例外隔離       global_exception_handler 確保 traceback 不流出至 HTTP response
+
+前端安全設計
+└── XSS 防禦          Grounding 來源 URL 改用 DOM API 動態建立節點，
+                      嚴格驗證 http/https 協議，阻斷 javascript: 偽協議注入
 ```
 
 ---
@@ -56,29 +65,34 @@ cp .env .env.example  # .env 為範本，複製後填入真實值
 
 填入以下欄位（參考 `.env` 內的註解）：
 
-| 欄位 | 說明                            | 生成指令 |
-|---|-------------------------------|---|
-| `OPENAI_API_KEY` | OpenAI API 金鑰                 | — |
-| `OPENAI_VISION_MODEL` | 名片識別模型（預設 `gpt-5.5`）          | — |
-| `GOOGLE_CLIENT_ID` | GCP OAuth2 Client ID          | — |
-| `GOOGLE_CLIENT_SECRET` | GCP OAuth2 Client Secret      | — |
-| `SESSION_SECRET_KEY` | Session 簽章金鑰                  | `python -c "import secrets; print(secrets.token_hex(32))"` |
-| `SESSION_ENCRYPT_KEY` | Session Token 加密金鑰（Fernet）    | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `SENDER_NAME` | 寄件人姓名                         | — |
-| `SENDER_BIO_FILE` | 自我介紹 HTML 檔案的絕對路徑             | — |
-| `ALLOWED_EMAIL` | 唯一允許登入的 Gmail                 | — |
+| 欄位 | 說明 | 生成指令 |
+|---|---|---|
+| `OPENAI_API_KEY` | OpenAI API 金鑰 | — |
+| `OPENAI_VISION_MODEL` | 名片識別模型（預設 `gpt-5.5`） | — |
+| `OPENAI_COLLAB_MODEL` | 合作機會生成模型（預設 `gpt-5.5`） | — |
+| `GEMINI_API_KEY` | Gemini API 金鑰（公司查詢 Grounding 用） | — |
+| `GEMINI_GROUNDING_MODEL` | Grounding 模型（預設 `gemini-2.5-flash`） | — |
+| `GOOGLE_CLIENT_ID` | GCP OAuth2 Client ID | — |
+| `GOOGLE_CLIENT_SECRET` | GCP OAuth2 Client Secret | — |
+| `SESSION_SECRET_KEY` | Session 簽章金鑰 | `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `SESSION_ENCRYPT_KEY` | Session Token 加密金鑰（Fernet） | `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `SENDER_NAME` | 寄件人姓名 | — |
+| `SENDER_BIO_FILE` | 自我介紹 HTML 檔案的絕對路徑 | — |
+| `COLLABORATION_HINTS_FILE` | 合作機會準則 YAML 檔案的絕對路徑 | — |
+| `ALLOWED_EMAIL` | 唯一允許登入的 Gmail | — |
 | `APP_BASE_URL` | 本機開發用 `http://localhost:8000` | — |
+| `GITHUB_REPO_URL` | 郵件 Footer 的 GitHub Repo 連結 | — |
 
-### 4. 建立自我介紹檔案
+### 4. 建立個人設定檔案
 
-自我介紹以 HTML 格式獨立存放，不進入 repo：
+以下檔案存放個人資料，不進入 repo，統一放於 `config/` 目錄：
+
+**自我介紹（HTML 格式）：**
 
 ```bash
 mkdir -p /path/to/config
 vim /path/to/config/sender_bio.html
 ```
-
-檔案內容範例：
 
 ```html
 <p>我是<strong>姓名</strong>，職稱與專業描述。</p>
@@ -88,12 +102,28 @@ vim /path/to/config/sender_bio.html
 </ul>
 ```
 
-`.env` 中的 `SENDER_BIO_FILE` 指向此檔案的絕對路徑。修改內容後無需重啟服務。
+**合作機會準則（YAML 格式）：**
+
+```bash
+vim /path/to/config/collaboration_hints.yaml
+```
+
+```yaml
+default: "探索雙方在 AI 應用與數位轉型上的合作可能"
+
+categories:
+  tech: "技術整合、API 串接、共同開發產品功能"
+  consulting: "顧問合作、專案外包、知識移轉"
+  ai: "AI 模型應用、資料分析、智慧化流程導入"
+  # 可自由新增 category，調整後無需重啟服務
+```
+
+GPT 會根據 Gemini 查到的公司業務資料自動判斷 category，再以對應準則生成合作機會描述。若業務不明確，自動使用 `default`。
 
 > **模型相容性備註**
 > GPT-4 系列使用 `max_tokens`；GPT-5 系列（含 GPT-5.5）改用 `max_completion_tokens`。
 > 程式碼已統一使用 `max_completion_tokens`，支援 `gpt-4o`、`gpt-4o-mini`、`gpt-5.5`、`gpt-5.5-2026-04-23`。
-> 切換模型只需修改 `.env` 中的 `OPENAI_VISION_MODEL` 並重啟服務，不需要動程式碼。
+> 切換模型只需修改 `.env` 中的對應欄位並重啟服務，不需要動程式碼。
 
 ### 5. 自訂郵件樣板
 
@@ -105,11 +135,13 @@ vim /path/to/config/sender_bio.html
 | 變數 | 說明 |
 |---|---|
 | `{{ sender_name }}` | 寄件人姓名（來自 `.env`） |
-| `{{ sender_bio \| safe }}` | 個人簡介 HTML（來自 `SENDER_BIO_FILE` 指定的檔案） |
+| `{{ sender_bio \| safe }}` | 個人簡介 HTML（來自 `SENDER_BIO_FILE`） |
 | `{{ event_name }}` | 活動名稱（使用者輸入） |
 | `{{ recipient_name }}` | 對方姓名（名片擷取） |
 | `{{ recipient_title }}` | 對方職稱 |
 | `{{ company_name }}` | 對方公司 |
+| `{{ collaboration_hint }}` | 合作機會描述（選填，空值不渲染） |
+| `{{ github_repo_url }}` | GitHub Repo 連結（來自 `.env`） |
 
 ### 6. 啟動
 
@@ -131,7 +163,8 @@ python -m uvicorn app.main:app --port 8000
 ① 輸入活動名稱
 ② 拍攝名片（後鏡頭）或從相簿選取
 ③ 確認 AI 識別結果（可手動修正）
-④ 一鍵寄出 Gmail 問候信
+④ 選用：點擊「查詢公司資料」→ 顯示公司簡介與合作機會描述（可編輯或清空）
+⑤ 一鍵寄出 Gmail 問候信
 ```
 
 ---
@@ -147,8 +180,10 @@ python -m uvicorn app.main:app --port 8000
 <!-- HTML 內容輸出（自我介紹）-->
 {{ sender_bio | safe }}
 
-<!-- 條件判斷 -->
-{% if recipient_title %}，{{ recipient_title }}{% endif %}
+<!-- 條件判斷（合作機會選填） -->
+{% if collaboration_hint %}
+<div>{{ collaboration_hint }}</div>
+{% endif %}
 ```
 
 HTML 郵件樣板（`email_body.html.j2`）支援完整 HTML + CSS，
@@ -162,7 +197,10 @@ HTML 郵件樣板（`email_body.html.j2`）支援完整 HTML + CSS，
   access token 過期時，Gmail SDK 會自動以 refresh token 換取新 token，
   並即時回寫至 session vault，使用者無需重登；
   refresh token 到期（7 天）時才需要登出重登
+- **名片識別語言優先級**：名片同時有中英文時，優先擷取中文姓名、公司名稱與職稱
 - **名片識別限制**：模糊或強烈反光的名片識別準確度會下降，建議在光線充足的環境拍攝；
   識別結果可在確認頁手動修正後再寄出
+- **公司查詢覆蓋率**：Gemini Grounding 對知名企業查詢效果最佳；查無資料時合作機會描述
+  會自動 fallback 至 `collaboration_hints.yaml` 的 `default` 項目
 - **多使用者擴充**：目前白名單為單一 email；若未來需多人使用，改為 DB 白名單即可，
   核心架構不需改動

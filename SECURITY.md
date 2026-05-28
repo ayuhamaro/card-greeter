@@ -1,109 +1,137 @@
-# Code Security Assessment Report: Project `card-greeter`
+## 📇 Business Card Greeter 原始碼安全審查報告
 
-本報告針對 `card-greeter` 專案的核心代碼進行安全審查（Code Review），重點評估配置值洩漏風險、狀態管理（Session）安全性，以及與反向代理（Nginx）搭配部署時潛在的架構缺陷。
+這份報告針對 `card-greeter` 專案的核心架構、認證機制、LLM 整合以及與 Nginx 協同運作時的潛在資安風險進行深度審查。
 
----
+整體而言，這份程式碼的資安意識**極高**。你處理敏感資訊的細緻度（例如在 Session Cookie 中引入 Fernet 二次加密、實作 One-shot 讀取大頭貼以優化 Cookie 空間、全域例外攔截防止 Traceback 外洩，以及前端精準的 XSS 防禦）顯著優於一般的開發標準。
 
-## ─── 執行摘要 (Executive Summary) ───
-
-整體而言，該專案在安全意識上有相當高水準的實作，例如採用了 **OpenAI Structured Outputs** 來收斂 Prompt Injection 的對域空間（Vector Space），並在客戶端 Cookie 簽章機制之外額外疊加了 **Fernet 對稱加密加密封套（Cryptographic Envelope）**。
-
-然而，系統在**網路拓撲邊界（Reverse Proxy Boundary）**與**記憶體狀態邊界**上仍存在兩項重大的隱患，可能導致生產環境部署時 Session 失效或引發記憶體耗盡（DoS）攻擊。
+然而，在預期將其部署於 Nginx 後端的情況下，仍有幾處隱藏的架構性風險（Architectural Risks）與邊界條件需要修正，以確保整體系統的低熵（Low Entropy）與高安全性。
 
 ---
 
-## ─── 重大資安風險與架構漏洞分析 ───
+## ── 優良安全實作亮點（High-Light）
 
-### 1. Nginx 網路代理對齊陷阱：`ProxyHeadersMiddleware` 的主機信任硬編碼
+在切入風險之前，這幾處設計非常漂亮，值得作為生產環境的 Schema 典範：
 
-* **定位檔案**：`app/main.py`
-* **風險層級**：高 (High) — 導致生產環境部署失敗或安全機制降級
-* **機制分析**：
-代碼中配置了 `ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")`。如果該服務與 Nginx 部署在同一個物理主機上，且 Nginx 透過 `127.0.0.1:8000` 轉發，此設定安全無虞。
-**但是，如果此專案未來使用 Docker 容器化部署**（例如透過 Docker Compose 將 Nginx 與 FastAPI 切分為不同服務），Nginx 轉發給 FastAPI 的 Ingress 流量將來自 Docker 內部網橋的閘道器 IP（如 `172.18.0.x`）。
-* **連帶崩潰效應**：
-當來源 IP 不匹配 `"127.0.0.1"` 時，`ProxyHeadersMiddleware` 會直接**忽略** Nginx 帶過來的 `X-Forwarded-Proto: https` 標頭。這會使 Starlette 誤判當前請求為不安全的 `http`。
-隨後，`SessionMiddleware(https_only=True)` 將拒絕向瀏覽器寫入或讀取 Session Cookie，導致 OAuth 回呼（Callback）徹底失效，甚至引發 Authlib 產生 `Missing Redirect URI Mismatch` 或是重定向無窮迴圈。
+* **全域例外隔離（Global Exception Isolation）：** `main.py` 中的 `global_exception_handler` 完美切斷了內部錯誤流向 HTTP Response 的路徑。Traceback 完整寫入日誌，外在只看得到模糊的 `Internal server error.`，阻斷了攻擊者透過錯誤訊息進行路徑探測或環境變數搜集的可能性。
+* **Session Vault 二次加密：** 由於 Starlette 的 `SessionMiddleware` 預設僅對 Cookie 進行簽章（Signing）而非加密（Encryption），敏感的 `access_token` 若明文存放，會暴露於客戶端瀏覽器。你引入 `Fernet` 進行對稱加密後再寫入 Cookie，完全解決了 Token 隱私外洩的問題。
+* **防範流氓資料來源之 XSS 注入：** 在 `index.html` 的 `lookupCompany` 中，雖然 Gemini Grounding 的來源網址屬於外部不可控資料，但你使用了 `textContent` 配合嚴格的 `http://` / `https://` 協議開頭檢查，徹底封殺了透過 `javascript:` 偽協議進行 XSS 攻擊的威脅。
+* **LLM 結構化輸出與間接 Prompt Injection 防禦：** `VisionService` 採用了 OpenAI 的 Structured Outputs (`response_format=CardExtraction`)，這在根本上強迫模型必須對齊 Pydantic 結構，杜絕了因名片內容包含惡意指令而導致 JSON 解析崩潰的風險。
 
+---
+
+## ── 核心資安風險與改進建議
+
+### 1. Nginx 代理權限與 `trusted_hosts` 容器化斷層
+
+* **程式碼片段：** `main.py`
 ```python
-# 存在隱患的區塊
 if is_production:
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1") 
-    # 若在 Docker 拓撲下，127.0.0.1 將無法正確匹配代理節點
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
 
 ```
 
-### 2. 未限制大小的 Base64 圖片反序列化 (Memory Inflation DoS Vector)
 
-* **定位檔案**：`app/routers/card.py` & `app/services/vision_service.py`
-* **風險層級**：中高 (Medium-High)
-* **機制分析**：
-`/api/scan` 接收一個 `ScanRequest` 模型，其中的 `image_data` 是一個未限制長度的明文字串（Base64 Data URL）。 FastAPI/Uvicorn 默認會將整個 JSON Payload 載入記憶體中。
-若惡意攻擊者繞過前端，直接對該端點併發發送內含 50MB~100MB 隨機字串的偽造請求，會導致伺服器記憶體空間（Memory Space）瞬間產生極高熵值的膨脹（Entropy Spike），極易觸發 Linux 核心的 OOM Killer，造成服務非預期終止。
-
----
-
-## ─── 值得肯定的安全優良設計 (Security Highlights) ───
-
-在審查過程中，我們也發現了幾處具備高度防禦性程式設計（Defensive Programming）思維的實作：
-
-* **密鑰隔離防護 (`hide_input_in_errors = True`)**：在 `app/config.py` 的 Pydantic 配置中開啟此開關，有效防止當環境變數型態錯誤時，Traceback 將 API Key 噴出到日誌（Logger）中。
-* **雙重安全 Session 結構**：開發者意識到 Starlette 的 `SessionMiddleware` 默認僅進行簽章（Signed）而非加密（Encrypted）。因此，代碼在寫入 `vault` 前使用 `Fernet` 對 Google OAuth Tokens 進行了對稱式加密。即使客戶端 Cookie 被惡意解碼，攻擊者也無法直接取得明文 Token。
-* **結構化輸出防禦 (Schema Enforcement)**：在 `VisionService` 中使用 `client.beta.chat.completions.parse(response_format=CardExtraction)`，藉由 OpenAI 官方的強型態 Schema 限制模型輸出，這能近乎完美地免疫高風險的「提示詞注入攻擊（Prompt Injection）」，防止模型傳回惡意的控制字元。
-
----
-
-## ─── 漏洞修復與優化建議清單 ───
-
-### 修正建議 1：提升代理主機配置的彈性（動態 CIDR 或環境變數化）
-
-為了讓系統能兼顧本機部署與 Docker 容器化拓撲，建議將 `trusted_hosts` 抽離至 `.env` 或預設支援網段。修改 `app/config.py` 增加 `trusted_proxies` 欄位：
-
+* **潛在問題：**
+若你未來的部署策略是將 Nginx 與 FastAPI 分別包裝在不同的 Docker 容器中（並透過 Docker Compose Bridge 網路連結），Nginx 對於 FastAPI 而言其來源 IP **絕對不會是 `127.0.0.1**`，而是網域內的虛擬 IP（例如 `172.18.0.x`）。
+一旦來源 IP 不在 `trusted_hosts` 白名單內，`ProxyHeadersMiddleware` 將會**拒絕解析** Nginx 傳遞的 `X-Forwarded-Proto` 等 Header。這會導致 FastAPI 誤以為當前請求仍是 HTTP，進而讓 `SessionMiddleware(https_only=True)` 在生產環境中**拒絕寫入或讀取 Cookie**，造成使用者無限登出。
+* **修復方案：**
+建議將 `trusted_hosts` 改為可透過環境變數配置，或在嚴格限定內部網路的 Docker 環境下改用 `["*"]`（但由 Nginx 負責把關外網存取）。
 ```python
-# app/config.py
-class Settings(BaseSettings):
-    # ... 其他設定
-    trusted_proxies: str = "127.0.0.1" # 支援以逗號分隔或設定為 "*" 代表信任所有反向代理
-
-```
-
-並在 `app/main.py` 中進行解耦改寫：
-
-```python
-# app/main.py
+# app/config.py 新增 proxy_trusted_hosts 配置
+# main.py 修改為：
 if is_production:
-    proxies = [p.strip() for p in settings.trusted_proxies.split(",")]
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=proxies)
+    trusted_hosts = [ip.strip() for ip in settings.proxy_trusted_hosts.split(",")]
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted_hosts)
 
 ```
 
-### 修正建議 2：配合 Nginx 設定邊界防禦（Ingress Rate & Size Limiting）
 
-雖然可以在 FastAPI 內部透過 Middleware 限制 Payload 大小，但最直覺且有效率（不佔用 Python 進程記憶體）的做法是在 Nginx 配置（或是 Docker 內部的 Nginx 節點）中直接設定 `client_max_body_size`：
+
+### 2. 客戶端 Cookie 體積膨脹與加密開銷（Cookie Overflow）
+
+* **潛在問題：**
+瀏覽器對單一網域的 Cookie 限制通常為 **4KB**。
+在 `auth.py` 中，你的 `vault` 內含 Google 的 `access_token` 與 `refresh_token`。Google 的 Token 長度有時會因權限範圍與內部規格調整而增大（特別是帶有 Offline 權限的 Refresh Token）。
+更重要的是，**Fernet (AES-128-CBC + HMAC) 加密會帶來顯著的體積膨脹**（約為原始明文的 1.3 到 2 倍，且會以 Base64 呈現）。雖然你已經極具遠見地將 `_picture` 自 Session 中 pop 掉，但若未來 Google Token 變長，仍有觸發 Cookie 超出 4KB 的臨界風險，導致瀏覽器無預警丟棄 Cookie。
+* **修復方案：**
+目前專案規模尚可安全運作。但若未來系統需要擴充功能或儲存更多狀態，建議將 `SessionMiddleware` 替換為**伺服器端 Session**（如將 Token 雜湊後存入伺服器記憶體/ Redis，Cookie 只留一個隨機的 `session_id`）。
+
+### 3. 未限制的 Base64 圖片上傳體積（潛在的記憶體 DoS 攻擊）
+
+* **程式碼片段：** `app/models.py` -> `ScanRequest(image_data: str)`
+* **潛在問題：**
+FastAPI 端直接接收了 `image_data: str` 的 Base64 字串，而 Pydantic 結構中並未限制該字串的長度上限。如果惡意攻擊者繞過前端，直接對 `/api/scan` 發送數百 MB 的巨大 Base64 字串，FastAPI 在解算 JSON 以及 `VisionService` 在執行 `base64.b64decode` 時，會瞬間榨乾伺服器記憶體，觸發 OOM (Out of Memory) 導致服務崩潰。
+* **修復方案：**
+此風險必須在 **Nginx 層面**進行硬性攔截（參見下一節的 Nginx 配置），同時也可以在 Pydantic Model 上施加長度約束：
+```python
+from pydantic import Field
+
+class ScanRequest(BaseModel):
+    # 限制 Base64 字串最大不超過 10MB (約等同 7MB 圖片)
+    image_data: str = Field(..., max_length=10 * 1024 * 1024)
+    event_name: str
+
+```
+
+
+
+---
+
+## ── 生產環境 Nginx 配置規範範本
+
+為了確保與 `card-greeter` 的 `ProxyHeadersMiddleware` 以及 `https_only=True` 安全隔離機制完美對齊，你的 Nginx 設定檔（`nginx.conf`）必須嚴格遵守以下範本配置：
 
 ```nginx
-# nginx.conf
-server {
-    listen 443 ssl;
-    server_name yourdomain.com;
+# 限制全域上傳體積，直接在傳輸層阻斷大圖 DoS 攻擊
+client_max_body_size 10M;
 
-    # 嚴格限制上傳的名片圖片大小上限為 10MB
-    client_max_body_size 10M; 
+server {
+    listen 443 ssl http2;
+    server_name card-greeter.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/card-greeter.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/card-greeter.yourdomain.com/privkey.pem;
+    
+    # 現代安全密碼組與協定
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    # 安全 Headers 防禦
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:;" always;
 
     location / {
-        proxy_pass http://127.0.0.1:8000;
+        # 轉發至 FastAPI 容器或本機埠口
+        proxy_pass http://127.0.0.1:8000; 
+        
+        # 核心：傳遞真實代理資訊，讓 ProxyHeadersMiddleware 能夠識別
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        
+        # 關鍵：告訴 FastAPI 當前用戶使用的是 HTTPS協定，確保 Secure Cookie 成功寫入
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # 停用 Buffer 確保串流與即時連線流暢度（選用）
+        proxy_buffering off;
+        proxy_read_timeout 90s;
     }
 }
 
 ```
 
-### 修正建議 3：防範客戶端 Cookie 重放攻擊（Session Replay）
+---
 
-由於目前的 Session 完全依賴客戶端 Cookie（無狀態架構），`/auth/logout` 呼叫 `request.session.clear()` 僅能藉由 Response 清除瀏覽器端的 Cookie。若該 Cookie 在有效期限（8 小時）內被第三方側錄，即使使用者點擊了登出，該側錄的 Cookie 依然具有完整的存取權限。
+## ── 總結
 
-* **短期緩解方案**：維持目前的 8 小時 `max_age`，這已將風險窗口（Vulnerability Window）限縮在單次活動範圍。
-* **長期演進架構**：若未來有擴展多用戶之需求，建議將 Session 狀態儲存移至後端 KV 資料庫（如 Redis），將 Cookie 僅作為 Session ID 索引，達成真正的伺服器端狀態撤銷（Server-side Revocation）。
+這份代碼展現了極其優異的防禦性編程（Defensive Programming）思維，在應用層已經把大部分 LLM 相關的注入與敏感資料外洩風險踩死。
+
+**最終清單檢查：**
+
+1. 確保部署時，Nginx 傳遞了 `X-Forwarded-Proto $scheme`。
+2. 確保 FastAPI 的 `trusted_hosts` 能涵蓋 Nginx 的實際容器內網 IP。
+3. 限制上傳的 Base64 體積。
+
+完成上述微調後，這套架構將擁有極高的強韌度與低熵表現。

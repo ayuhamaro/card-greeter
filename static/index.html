@@ -637,7 +637,7 @@
     <div class="section-subtitle">活動名稱會嵌入問候信的主旨與內文</div>
     <div class="field">
       <label>活動名稱</label>
-      <input type="text" id="event-name" placeholder="例如：2025 台北新創週 Demo Day"
+      <input type="text" id="event-name" placeholder="例如：2026 台北新創週 Demo Day"
              autocomplete="off" maxlength="60">
     </div>
     <button class="btn btn-primary" onclick="goToStep2()">下一步</button>
@@ -692,7 +692,7 @@
       </div>
       <div class="card-info-row">
         <span class="card-info-key">Email</span>
-        <input class="card-info-val" id="info-email" type="email" placeholder="必填">
+        <input class="card-info-val" id="info-email" type="text" placeholder="必填">
       </div>
       <div class="card-info-row">
         <span class="card-info-key">公司</span>
@@ -703,6 +703,42 @@
     <div class="field">
       <label>活動名稱（可修改）</label>
       <input type="text" id="confirm-event-name" readonly style="opacity:0.7">
+    </div>
+
+    <!-- ── 公司查詢區塊 ── -->
+    <button class="btn btn-secondary" id="lookup-btn" onclick="lookupCompany()"
+            style="margin-bottom:10px">
+      🔍 查詢公司資料（選用）
+    </button>
+
+    <!-- 公司簡介（查詢後顯示） -->
+    <div id="company-summary-block" style="display:none; margin-bottom:16px">
+      <div style="font-size:11px; font-family:var(--font-mono); color:var(--muted);
+                  text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px">
+        公司簡介
+      </div>
+      <div id="company-summary-text"
+           style="background:var(--card-bg); border:1.5px solid var(--border);
+                  border-radius:8px; padding:14px 16px; font-size:13px;
+                  color:var(--ink); line-height:1.7; white-space:pre-wrap"></div>
+      <div id="company-sources"
+           style="margin-top:8px; font-size:11px; font-family:var(--font-mono);
+                  color:var(--muted); overflow-wrap:break-word; word-break:break-all;
+                  max-width:100%"></div>
+    </div>
+
+    <!-- 合作機會（查詢後顯示，可編輯可清空） -->
+    <div id="collab-hint-block" style="display:none; margin-bottom:16px">
+      <div style="font-size:11px; font-family:var(--font-mono); color:var(--muted);
+                  text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px">
+        合作機會 <span style="font-size:10px; color:var(--muted)">(選填，可編輯或清空)</span>
+      </div>
+      <textarea id="collab-hint-text"
+                style="width:100%; padding:12px 14px; border:1.5px solid var(--border);
+                       border-radius:8px; background:var(--card-bg); font-size:14px;
+                       font-family:var(--font-serif); color:var(--ink); line-height:1.7;
+                       resize:vertical; min-height:90px"
+                placeholder="留空則不嵌入問候信"></textarea>
     </div>
 
     <button class="btn btn-accent" onclick="sendEmail()">✉️ 寄出問候信</button>
@@ -751,6 +787,7 @@
       }
       if (_userPicture) {
         avatar.src = _userPicture;
+        avatar.style.display = '';  // 確保從 sessionStorage 取回時也能正常顯示
       } else {
         avatar.style.display = 'none';
       }
@@ -784,10 +821,20 @@
     await startCamera();
   }
 
+  function resetCompanyLookup() {
+    document.getElementById('company-summary-block').style.display = 'none';
+    document.getElementById('collab-hint-block').style.display = 'none';
+    document.getElementById('company-summary-text').textContent = '';
+    document.getElementById('company-sources').textContent = '';
+    document.getElementById('collab-hint-text').value = '';
+    const btn = document.getElementById('lookup-btn');
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 查詢公司資料（選用）'; }
+  }
+
   function goToStep2Back() {
     capturedImageData = null;
+    resetCompanyLookup();  // Bug 1 fix：重新拍攝時重置查詢區塊
     setStep(2);
-    // 重新開啟相機
     document.getElementById('captured-preview').style.display = 'none';
     document.getElementById('camera-wrapper').style.display = 'block';
     document.getElementById('capture-btn').style.display = 'block';
@@ -890,6 +937,9 @@
       const data = await res.json();
       const card = data.card;
 
+      // Bug 1 fix：新名片掃描完成，重置先前的公司查詢結果
+      resetCompanyLookup();
+
       // 填入確認頁
       document.getElementById('info-name').value = card.name || '';
       document.getElementById('info-title').value = card.title || '';
@@ -904,6 +954,12 @@
       showToast(err.message, 'error');
     } finally {
       hideLoading();
+      // Bug 2 fix：確保 btn 狀態在任何情況下都能正確復原
+      const btnFinal = document.getElementById('lookup-btn');
+      if (btnFinal) {
+        btnFinal.disabled = false;
+        btnFinal.textContent = '🔍 查詢公司資料（選用）';
+      }
     }
   }
 
@@ -929,6 +985,7 @@
             company: document.getElementById('info-company').value.trim(),
           },
           event_name: document.getElementById('confirm-event-name').value,
+          collaboration_hint: document.getElementById('collab-hint-text')?.value.trim() || '',
         }),
       });
 
@@ -956,12 +1013,86 @@
   }
 
   // ─── Reset ────────────────────────────────────────────────
+
+  // ─── Company Lookup ────────────────────────────────────────────────────
+  async function lookupCompany() {
+    const company = document.getElementById('info-company').value.trim();
+    if (!company) {
+      showToast('請先填入公司名稱', 'error');
+      return;
+    }
+    const btn = document.getElementById('lookup-btn');
+    btn.disabled = true;
+    btn.textContent = '查詢中…';
+    document.getElementById('company-summary-block').style.display = 'none';
+    document.getElementById('collab-hint-block').style.display = 'none';
+    showLoading('AI 正在查詢公司資料…');
+    try {
+      const res = await fetch('/api/company-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_name: company }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || '查詢失敗');
+      const data = await res.json();
+
+      document.getElementById('company-summary-text').textContent = data.summary;
+      const sourcesEl = document.getElementById('company-sources');
+      if (data.sources && data.sources.length > 0) {
+        // XSS 防空：不用 innerHTML，改用 DOM API 動態建節點
+        // 同時驗證 URL 必須為 http/https，防止 javascript: 偽協議注入
+        sourcesEl.textContent = '';
+        const label = document.createTextNode('資料來源：');
+        sourcesEl.appendChild(label);
+        data.sources.forEach((u, index) => {
+          if (!u.startsWith('http://') && !u.startsWith('https://')) return;
+          const a = document.createElement('a');
+          a.href = u;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = u;
+          a.style.color = 'var(--accent)';
+          a.style.wordBreak = 'break-all';
+          sourcesEl.appendChild(a);
+          if (index < data.sources.length - 1) {
+            sourcesEl.appendChild(document.createTextNode(' | '));
+          }
+        });
+      } else {
+        sourcesEl.textContent = '';
+      }
+      document.getElementById('company-summary-block').style.display = 'block';
+
+      document.getElementById('loading-text').textContent = 'AI 正在生成合作機會描述…';
+      const res2 = await fetch('/api/collaboration-hint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_name: company, company_summary: data.summary }),
+      });
+      if (!res2.ok) throw new Error((await res2.json()).detail || '生成失敗');
+      const data2 = await res2.json();
+      document.getElementById('collab-hint-text').value = data2.hint;
+      document.getElementById('collab-hint-block').style.display = 'block';
+
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      hideLoading();
+      btn.disabled = false;
+      btn.textContent = '🔍 查詢公司資料（選用）';
+    }
+  }
+
+
   function resetAll() {
     capturedImageData = null;
     document.getElementById('info-name').value = '';
     document.getElementById('info-title').value = '';
     document.getElementById('info-email').value = '';
     document.getElementById('info-company').value = '';
+    document.getElementById('company-summary-block').style.display = 'none';
+    document.getElementById('collab-hint-block').style.display = 'none';
+    document.getElementById('collab-hint-text').value = '';
     document.getElementById('captured-preview').style.display = 'none';
     document.getElementById('camera-wrapper').style.display = 'block';
     document.getElementById('capture-btn').style.display = 'block';

@@ -70,8 +70,14 @@
       color: #1a73e8;
       font-weight: 600;
     }
-    a{
-      color: #1a73e8;
+    .collab-section {
+      background: #fff8f0;
+      border-left: 3px solid #c9622f;
+      padding: 14px 20px;
+      border-radius: 0 6px 6px 0;
+      font-size: 14px;
+      color: #444;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -98,6 +104,12 @@
 
       <hr class="divider">
 
+{% if collaboration_hint %}
+      <p><strong>合作機會：</strong></p>
+      <div class="collab-section">{{ collaboration_hint }}</div>
+      <br>
+{% endif %}
+
       <p>
         希望很快就能有機會與
         <span class="highlight">{{ company_name }}</span> 合作！
@@ -112,7 +124,7 @@
     </div>
 
     <div class="footer">
-        此信件由名片問候助理(<a href="https://github.com/ayuhamaro/card-greeter" target="_blank">GitHub Repo</a>)自動生成 · {{ event_name }}
+      此信件由名片問候助理(<a href="{{ github_repo_url }}" target="_blank" style="color:#1a73e8; text-decoration:none">GitHub Repo</a>)自動生成 · {{ event_name }}
     </div>
   </div>
 </body>

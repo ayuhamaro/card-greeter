@@ -36,7 +36,10 @@ async def send_greeting(
 
     try:
         subject = template_service.render_subject(card, event_name)
-        html_body = template_service.render_body(card, event_name)
+        html_body = template_service.render_body(
+            card, event_name,
+            collaboration_hint=payload.collaboration_hint or "",
+        )
     except Exception as e:
         logger.error(f"Template rendering error: {e}")
         raise HTTPException(status_code=500, detail="Failed to render email template.")
