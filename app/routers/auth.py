@@ -1,5 +1,6 @@
 import json
 import logging
+import httpx
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
 from authlib.integrations.starlette_client import OAuth
@@ -37,8 +38,6 @@ oauth.register(
             "openid email profile "
             "https://www.googleapis.com/auth/gmail.send"
         ),
-        "access_type": "offline",
-        "prompt": "consent",
     },
 )
 
@@ -47,7 +46,11 @@ oauth.register(
 async def login(request: Request):
     """重導向至 Google OAuth2 同意畫面"""
     redirect_uri = f"{settings.app_base_url}/auth/callback"
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    return await oauth.google.authorize_redirect(
+        request, redirect_uri,
+        access_type="offline",
+        prompt="consent",
+    )
 
 
 @router.get("/callback")
@@ -106,7 +109,20 @@ async def callback(request: Request):
 
 @router.get("/logout")
 async def logout(request: Request):
-    """清除 session"""
+    """撤銷 Google OAuth token 後清除 session"""
+    user = request.session.get("user")
+    if user:
+        try:
+            tokens = _decrypt(user["vault"])
+            revoke_token = tokens.get("refresh_token") or tokens.get("access_token")
+            if revoke_token:
+                async with httpx.AsyncClient() as client:
+                    await client.post(
+                        "https://oauth2.googleapis.com/revoke",
+                        params={"token": revoke_token},
+                    )
+        except Exception as e:
+            logger.warning(f"Token revocation failed during logout: {e}")
     request.session.clear()
     return RedirectResponse(url="/")
 
