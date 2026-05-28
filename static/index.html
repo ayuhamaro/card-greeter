@@ -702,7 +702,7 @@
 
     <div class="field">
       <label>活動名稱（可修改）</label>
-      <input type="text" id="confirm-event-name" readonly style="opacity:0.7">
+      <input type="text" id="confirm-event-name">
     </div>
 
     <!-- ── 公司查詢區塊 ── -->
@@ -964,6 +964,13 @@
   }
 
   async function sendEmail() {
+    const eventName = document.getElementById('confirm-event-name').value.trim();
+    if (!eventName) {
+      showToast('請填入活動名稱', 'error');
+      document.getElementById('confirm-event-name').focus();
+      return;
+    }
+
     const email = document.getElementById('info-email').value.trim();
     if (!email || !email.includes('@')) {
       showToast('請填入有效的 Email 地址', 'error');
@@ -984,7 +991,7 @@
             email: email,
             company: document.getElementById('info-company').value.trim(),
           },
-          event_name: document.getElementById('confirm-event-name').value,
+          event_name: eventName,
           collaboration_hint: document.getElementById('collab-hint-text')?.value.trim() || '',
         }),
       });
