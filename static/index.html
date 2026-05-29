@@ -752,6 +752,9 @@
       <div class="success-title">問候信已寄出！</div>
       <div class="success-detail" id="success-detail"></div>
     </div>
+    <button class="btn btn-secondary" id="btn-save-contact" onclick="saveToContacts()" style="margin-bottom:10px">
+      👤 將名片資料存入聯絡人
+    </button>
     <button class="btn btn-primary" onclick="resetAll()">繼續掃描下一張名片</button>
   </div>
 
@@ -762,6 +765,7 @@
   let capturedImageData = null;  // base64 data URL
   let currentStream = null;
   let _userPicture = '';  // picture URL 快取於 JS 變數，不依賴 session cookie
+  let cardState = null;   // 完整名片資料（含聯絡人欄位），供 Phase 2 存入聯絡人用
 
   // ─── Init ─────────────────────────────────────────────────
   async function init() {
@@ -833,6 +837,7 @@
 
   function goToStep2Back() {
     capturedImageData = null;
+    cardState = null;
     resetCompanyLookup();  // Bug 1 fix：重新拍攝時重置查詢區塊
     setStep(2);
     document.getElementById('captured-preview').style.display = 'none';
@@ -939,6 +944,8 @@
 
       // Bug 1 fix：新名片掃描完成，重置先前的公司查詢結果
       resetCompanyLookup();
+
+      cardState = card;  // 保存完整資料供 Phase 2 存入聯絡人
 
       // 填入確認頁
       document.getElementById('info-name').value = card.name || '';
@@ -1091,8 +1098,15 @@
   }
 
 
+  // Phase 2: 存入 Google 聯絡人
+  function saveToContacts() {
+    // TODO: Phase 2 實作
+    showToast('聯絡人存入功能即將推出', 'success');
+  }
+
   function resetAll() {
     capturedImageData = null;
+    cardState = null;
     document.getElementById('info-name').value = '';
     document.getElementById('info-title').value = '';
     document.getElementById('info-email').value = '';

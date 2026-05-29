@@ -2,11 +2,25 @@ from pydantic import BaseModel
 from typing import Optional
 
 
+class AddressInfo(BaseModel):
+    street: Optional[str] = ""
+    city: Optional[str] = ""
+    region: Optional[str] = ""
+    postal_code: Optional[str] = ""
+    country: Optional[str] = ""
+
+
 class CardInfo(BaseModel):
     name: str
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
     title: Optional[str] = ""
     email: Optional[str] = ""
     company: Optional[str] = ""
+    phone: Optional[str] = ""
+    mobile: Optional[str] = ""
+    address: Optional[AddressInfo] = None
+    website: Optional[str] = ""
     raw_text: Optional[str] = ""
 
 
