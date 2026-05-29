@@ -1,166 +1,174 @@
-這是一份針對 `card-greeter`（新創交流名片問候助理）專案源碼的深度安全與架構審查報告。整體而言，本專案的防禦性編程（Defensive Programming）意識極高，在資料隱私、提示詞注入防禦以及錯誤阻斷上展現了非常成熟的設計。
-
-以下從高維認知與架儲優化的視角，進行全方位的解構與赋能：
+這是一份針對「名片問候助理 (Business Card Greeter)」的程式碼與架構安全審查報告。本報告依據您提供的 FastAPI / 前端原始碼與系統組態，從應用層、基礎設施對齊以及 LLM 整合邊界等面向進行深入分析。
 
 ---
 
-## ── 優良安全實作亮點 (High-Light)
+## 1. 優良安全實作
 
-本專案在多處核心邏輯中展現了極具遠見的防禦設計，有效降低了系統的熵值（Entropy）與攻擊面：
+在進行風險盤點前，系統中已有數項值得肯定的安全設計，建議在後續重構中持續保留這些安全不變量（Invariants）：
 
-* **密鑰拉鍊保險箱（Token Vault Encryption）：** 在 `app\routers\auth.py` 中，系統並未將未加密的 Google OAuth2 `access_token` 與 `refresh_token` 直接寫入客戶端 Cookie Session，而是透過 `cryptography.fernet` 進行對稱加密後打包為 `vault` 存入。此舉大幅提升了資料在傳輸與存儲邊界時的抗竊聽與抗篡改強度。
-* **動態邊界優化（Cookie Bloat Prevention）：** 針對 `picture` 這種非定長且佔用空間的頭像網址，採用 `one-shot`（一次性讀取即自 Session 彈出）並交由前端 JS 變數維護的設計。這完美迴避了 Starlette 客戶端 Cookie 超過 **4KB** 限制而導致 Session 隨機失效的架構性隱患。
-* **LLM 整合層的雙重硬化防禦（Dual-Layer LLM Shielding）：** * 在 `VisionService` 中，利用 OpenAI 的 **Structured Outputs** (`response_format=CardExtraction`) 強制大型模型對齊 Pydantic Schema，從根本上免疫了名片內容可能夾帶的格式漂移（Format Drifting）與間接提示詞注入。
-* 在 `CompanyService` 中，精心設計 Prompt 排除新聞、爭議事件，限縮 Gemini Grounding 的語意向量空間，有效切斷外部不可控網頁內容引發的間接注入威脅。
+* **全域例外攔截與錯誤去敏感化**
+* **位置：** `app\main.py` 的 `global_exception_handler`
+* **設計說明：** 攔截所有未處理例外，將 traceback 與詳細錯誤寫入 Server Log，而僅對 Client 回傳標準的 500 JSON。
+* **安全價值：** 有效防止套件內部路徑、加密金鑰或局部變數等敏感資訊透過 HTTP Response 洩漏（Information Disclosure）。
 
 
-* **嚴格的例外資訊外洩阻斷（Information Leakage Isolation）：** `app\main.py` 實作了全域例外攔截器 `global_exception_handler`，確保所有非預期的 Traceback、內部路徑及依賴庫敏感細節只會留存在伺服器日誌（Logs）中，回傳給 HTTP Response 的僅有標準的群組化 JSON 訊息，避免技術債暴露給外部威脅源。
+* **最小化 Session 儲存與 Token 隔離加密**
+* **位置：** `app\routers\auth.py` 的 `_encrypt` 與 Session 寫入邏輯
+* **設計說明：** Session Cookie 僅明文存放不具敏感性的識別資訊（email, name），而將高權限的 OAuth Access / Refresh Token 透過 Fernet 加密後存入 `vault`。
+* **安全價值：** 即使 Cookie 被盜取或外洩，攻擊者也無法直接取得明文的 Google API Token；同時配合 `max_age` 與 `same_site="lax"` 縮小了 CSRF 與 Session Hijacking 的攻擊面。
+
+
+* **嚴格的認證白名單邊界**
+* **位置：** `app\routers\auth.py` 的 `allowed_email` 檢查
+* **設計說明：** 系統直接在 OAuth Callback 階段阻擋非白名單信箱。
+* **安全價值：** 避免服務暴露於公網時遭任意使用者登入，進而濫用配額昂貴的 LLM API 服務。
+
+
+* **強型別的 LLM 輸出驗證 (Structured Outputs)**
+* **位置：** `app\services\vision_service.py` 的 `CardExtraction` 類別
+* **設計說明：** 使用 Pydantic schema 與 OpenAI GPT-4o 的 `response_format`，強制模型回傳符合預期格式的 JSON。
+* **安全價值：** 消除 LLM 輸出格式漂移（Format drift）的風險，並在一定程度上阻斷 Prompt Injection 導致模型吐出惡意指令的可能。
+
+
+* **前端動態渲染防範 XSS**
+* **位置：** `static\index.html` 的 `lookupCompany` 函式
+* **設計說明：** 解析 Gemini 來源 URL 時，強制驗證 `http://` 或 `https://` 前綴，並使用 `document.createElement` 動態建構 DOM 節點，而非依賴 `innerHTML`。
+* **安全價值：** 防止 LLM 回傳惡意的 `javascript:` 偽協議 URL 所導致的 DOM-based XSS 攻擊。
+
+
 
 ---
 
-## ── 核心資安風險與改進建議
+## 2. 核心安全風險與修復建議
 
-儘管基礎防線穩固，但在邊界條件對齊與資源調度上，仍存在以下三個架構性斷层風險：
+### 風險項目：缺少 Request Body 與輸入欄位長度限制 (DoS / OOM 風險)
 
-### 1. 容器化網路拓撲下的代理對齊失效（Proxy Headers Mismatch）
+* **嚴重程度：** High
+* **影響範圍：** 應用層 / 資源耗用
+* **涉及位置：** `app\models.py` 的 `ScanRequest`、`main.py`
+* **問題描述：** `ScanRequest` 接受 base64 格式的 `image_data` 字串，但未設定最大長度。攻擊者（或異常的前端行為）可以發送數百 MB 的超大 Payload。由於 FastAPI / Uvicorn 預設不嚴格限制 Body Size，這將導致記憶體耗盡（OOM）或嚴重拖垮事件迴圈（Event Loop）。
+* **攻擊情境或失效條件：** 授權使用者帳號遭挾持，或惡意內部人員以腳本大量 POST 巨大的 Base64 字串至 `/api/scan`。
+* **修復建議：** 於 Pydantic 模型中針對欄位增加長度約束（`max_length`），並於應用層或 Nginx 設定中加入 Payload Size 限制。
 
-* **程式碼片段 / 涉及模組：** `app\main.py`
-```python
-is_production = not settings.app_base_url.startswith("http://localhost")
-if is_production:
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
+### 風險項目：反向代理信任主機 (Trusted Hosts) 與 Docker 網路設定落差
 
-```
+* **嚴重程度：** Medium
+* **影響範圍：** 基礎設施 / Session
+* **涉及位置：** `app\main.py` 的 `ProxyHeadersMiddleware`
+* **問題描述：** 程式碼中硬編碼了 `trusted_hosts="127.0.0.1"`。若應用程式部署在 Docker 容器內，Nginx 通常透過 Docker Bridge Network (例如 `172.x.x.x`) 轉發流量，此時來源 IP 並非 `127.0.0.1`。
+* **攻擊情境或失效條件：** `ProxyHeadersMiddleware` 會拒絕解析來自非 127.0.0.1 的 `X-Forwarded-Proto`，導致 FastAPI 以為請求是 HTTP。這將觸發 `SessionMiddleware` 中 `https_only=True` 的失效（Cookie 無法正確被寫入瀏覽器），或引發無窮的 HTTPS 重新導向迴圈。
+* **修復建議：** 將 `trusted_hosts` 抽離至 `.env` 環境變數，使其能在容器環境中配置為實際的 Proxy IP（或 `*`，若網路邊界已在外部受到嚴格保護）。
 
+### 風險項目：缺少 LLM API 速率限制 (Rate Limiting) 與成本消耗控制
 
-* **潛在問題與架構風險：** 當此應用部署於現代容器化環境（如 Docker / Kubernetes）中，通常會以 Nginx 作為前端反向代理（Reverse Proxy）。在 Docker Bridge 網路架構下，Nginx 轉發請求給 FastAPI 時的來源 IP 通常是私有網段（如 `172.18.0.x`），而非 `127.0.0.1`。
-這會導致 `ProxyHeadersMiddleware` 拒絕信任 Nginx 傳遞的 `X-Forwarded-Proto` 等標頭。進而引發內部 Schema 計算錯誤，使得 OAuth 回呼網址不一致，或是迫使 `SessionMiddleware` 的 `https_only=True` 因為無法識別 HTTPS 終端（SSL Termination）而拒絕寫入 Cookie。
-* **修復方案 (Refactoring Solution)：**
-應將信任的代理主機調整為支援環境變數配置，允許輸入子網段或動態讀取。
-```python
-# app\config.py 增加設定項目
-class Settings(BaseSettings):
-    # ...
-    trusted_proxies: str = "127.0.0.1" # 支援以逗號分隔，例如 "127.0.0.1,172.16.0.0/12"
+* **嚴重程度：** Medium
+* **影響範圍：** 資源耗用 / 外部整合
+* **涉及位置：** `app\routers\card.py`、`app\routers\company.py`
+* **問題描述：** 提供 GPT-4o Vision 與 Gemini Grounding 的 API 介面沒有任何防呆或 Rate Limit 限制。
+* **攻擊情境或失效條件：** 即使有白名單保護，合法使用者可能因前端 Bug（如狂按按鈕）、腳本錯誤，在短時間內發送大量請求，導致 OpenAI / Google 帳單爆增，或觸發 API 供應商的 Rate Limit 導致服務中斷。
+* **修復建議：** 引入 `slowapi` 等套件，基於使用者 Email 設定 Token bucket 的速率限制（例如：每分鐘最多 10 次名片掃描）。
 
-# app\main.py 修改
-if is_production:
-    proxies = [ip.strip() for ip in settings.trusted_proxies.split(",")]
-    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=proxies)
+### 風險項目：Pydantic V2 設定檔相容性隱患
 
-```
+* **嚴重程度：** Low
+* **影響範圍：** 應用層設定
+* **涉及位置：** `app\config.py`
+* **問題描述：** 類別繼承自 `pydantic_settings.BaseSettings` (此為 Pydantic V2 寫法)，但內部設定檔載入卻使用 `class Config:` (此為 Pydantic V1 寫法)。
+* **攻擊情境或失效條件：** 在某些版本的 Pydantic V2 中，`class Config` 會被靜默忽略，導致環境變數（如 `session_secret_key`）載入失敗或回退至預設值，可能引發未預期的啟動失敗或機敏資料處理異常。
+* **修復建議：** 改用 Pydantic V2 官方建議的 `model_config = SettingsConfigDict(...)` 宣告方式。
 
+---
 
+## 3. 建議重構範例
 
-### 2. 未限制大小的 Base64 記憶體吞噬（Unbounded Payload DoS）
+### A. Pydantic 模型安全約束 (修復 OOM 風險)
 
-* **程式碼片段 / 涉及模組：** `app\models.py` -> `ScanRequest`
-```python
-class ScanRequest(BaseModel):
-    image_data: str
-    event_name: str
+在 `models.py` 中明確宣告字串長度，提早在反序列化階段擋下巨大 Payload：
 
-```
-
-
-* **潛在問題與架構風險：** `image_data` 直接定義為不限長度的 `str`。當前端將手機拍攝的高解析度照片直接轉為 Base64 格式上傳時，惡意攻擊者可以發送高達 **50MB** 或更大的字串。
-Pydantic 在對 JSON 進行反序列化時會將其全數加載至記憶體中。在高併發場景下，這種缺乏輸入邊界約束的設計會迅速耗盡伺服器記憶體，觸發 Linux 核心的 OOM Killer，導致服務非預期終止（Denial of Service, DoS）。
-* **修復方案 (Refactoring Solution)：**
-利用 Pydantic 的 `Field` 限制字串長度的上限值（例如限制 Base64 字串最大不超過 **15MB**，這已足夠容納一般高畫質名片截圖）。
 ```python
 from pydantic import BaseModel, Field
 
 class ScanRequest(BaseModel):
-    # 15 * 1024 * 1024 限制字元長度
-    image_data: str = Field(..., max_length=15728640, description="Base64 encoded card image")
+    # 限制 base64 圖片長度 (例如限制為 ~10MB 左右的 Base64 長度)
+    image_data: str = Field(..., max_length=15_000_000)
+    # 限制一般文字輸入，防範過長的惡意字串
     event_name: str = Field(..., max_length=100)
 
+class CompanyLookupRequest(BaseModel):
+    company_name: str = Field(..., max_length=100)
+
 ```
 
+### B. 基礎架構 Proxy 設定對齊與 Pydantic V2 重構
 
+更新 `config.py` 以支援動態 Proxy IP，並修正 Pydantic 寫法：
 
-### 3. 客戶端 Cookie 體積爆破隱患（Client-Side Session Overflow）
-
-* **程式碼片段 / 涉及模組：** `app\routers\auth.py` -> `callback()`
 ```python
-vault = _encrypt({
-    "access_token": token.get("access_token", ""),
-    "refresh_token": token.get("refresh_token", ""),
-})
-request.session["user"] = { ... "vault": vault }
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List, Union
+
+class Settings(BaseSettings):
+    # ... 省略原有欄位 ...
+    
+    # 增加 proxy hosts 設定，允許逗號分隔或 *
+    trusted_proxy_hosts: Union[str, List[str]] = "127.0.0.1"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
 ```
 
+並在 `main.py` 中套用：
 
-* **潛在問題與架構風險：** Starlette 的 `SessionMiddleware` 屬於純客戶端（Client-side）Cookie 機制。雖然 `Fernet` 提供了優異的加密保護，但密文（Ciphertext）的長度會比原文大幅膨脹（包含 IV、Timestamp 與 HMAC 簽章，具有高熵值且無法被二次壓縮）。
-Google OAuth2 的 `access_token` 長度往往不固定，若加上 `refresh_token`，加密後的 `vault` 字串可能直逼 **2KB**。一旦加上 Session 的其他明文字段，總體 Cookie 長度極易突破瀏覽器 **4KB** 的臨界值。這會導致瀏覽器默默丟棄該 Cookie，使用者在下一次請求時會直接遭遇 401 未授權錯誤，造成難以排查的隨機登出現象。
-* **修復方案 (Refactoring Solution)：**
-雖然目前專案已透過 pop 排除 `_picture` 進行了優化，但若長期發展，強烈建議引入後端存儲型（Server-side）Session（如 Redis 或輕量化資料庫），Cookie 僅保留隨機的 `Session ID`。
-*權宜修復方案：在寫入 Session 前對體積進行防禦性斷言（Assertion）檢驗：*
 ```python
-import json
-# 在寫入變數 request.session["user"] 後加入檢查
-session_data_len = len(json.dumps(request.session.get("user", {})))
-if session_data_len > 3000: # 預留 1KB 給其餘 Cookie 標頭與邊界
-    logger.error(f"Session size risk: {session_data_len} bytes. OAuth tokens are too large.")
-    raise HTTPException(status_code=500, detail="Authentication identity too large to store.")
+# 將逗號分隔字串轉為 list
+trusted_hosts = settings.trusted_proxy_hosts
+if isinstance(trusted_hosts, str):
+    trusted_hosts = [h.strip() for h in trusted_hosts.split(",")]
+
+if is_production:
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted_hosts)
 
 ```
-
-
 
 ---
 
-## ── 生產環境配套配置規範範本 (Deployment Config)
+## 4. 生產環境部署配置建議
 
-為了補足「架構師的宏觀視野」，將代碼中的防禦邏輯與基礎設施對齊，本專案在生產環境布署時，必須為前端反向代理調校專屬的 `nginx.conf`。此配置能有效在網關邊界擋下 DoS 攻擊、防範 XSS 以及點擊劫持（Clickjacking）：
+若此服務透過 Nginx 作為反向代理並掛載 TLS，為了讓 FastAPI 的 SessionMiddleware 與 ProxyHeadersMiddleware 正常運作，並阻擋過大的惡意請求，請參考以下 `nginx.conf` 設定片段：
 
 ```nginx
-# nginx.conf 安全硬化配置範本
-
-# 限制客戶端上傳檔案（Base64 圖片）的最大容量，與應用層 Pydantic 邊界呼應
-client_max_body_size 20M;
-
 server {
     listen 443 ssl http2;
-    server_name card-greeter.yourdomain.com;
+    server_name your-domain.com;
 
-    ssl_certificate /etc/letsencrypt/live/card-greeter.yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/card-greeter.yourdomain.com/privkey.pem;
-    
-    # 現代安全密碼套件配置 (TLS 1.2 / TLS 1.3 Only)
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
-    ssl_prefer_server_ciphers on;
+    # 基礎 TLS 設定 (略)
 
-    # ── 現代化防禦性安全標頭 (Security Headers) ──
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self';" always;
+    # 應用層安全 Headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-Frame-Options DENY;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://accounts.google.com;";
+    add_header Referrer-Policy strict-origin-when-cross-origin;
+
+    # 嚴格限制客戶端上傳 Body Size (對齊 Pydantic 的 15MB 限制)
+    client_max_body_size 15M;
 
     location / {
-        proxy_pass http://127.0.0.1:8000; # 容器內部橋接網址
+        proxy_pass http://127.0.0.1:8000; # 或指向 Docker container 的 hostname
         
-        # ── 核心 Proxy Headers 轉發（對齊 FastAPI ProxyHeadersMiddleware） ──
+        # 必須正確傳遞這些 Header，FastAPI 才能識別 HTTPS 與真實 IP
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        
-        # 確保 SSL Termination 架構下，FastAPI 能藉此識別並啟用 https_only Cookie
         proxy_set_header X-Forwarded-Proto $scheme;
-
-        # 緩衝限制優化，防止大流量 JSON 上傳時頻繁寫入臨時磁碟導致效能斷崖
-        proxy_buffering off;
-        proxy_read_timeout 90s;
-    }
-
-    # 針對靜態資源優化快取管理，降低應用層負荷
-    location /static/ {
-        alias /app/static/;
-        expires 7d;
-        add_header Cache-Control "public, no-transform";
+        
+        # 逾時設定，防止 LLM API 等待過久佔用連線
+        proxy_read_timeout 60s;
+        proxy_connect_timeout 15s;
     }
 }
 
@@ -168,6 +176,17 @@ server {
 
 ---
 
-## ── 總結
+## 5. 優先修復清單
 
-`Business Card Greeter` 在高難度的「多模態 LLM 擷取」與「OAuth 整合儲存」場景中，交出了一份安全意識極佳的答卷。其透過強韌的結構化輸出與加密沙盒機制，成功將最難預測的 AI 語意威脅和 Session 洩漏風險降至最低。後續只需將網路邊界的代理對齊（Proxy alignment）和內存防禦閥門（Payload limits）依照報告進行硬化調整，即可完美具備企業級的健壯度與生產環境應變能力。
+| 優先級 | 項目 | 風險 | 建議處理方式 |
+| --- | --- | --- | --- |
+| **P0** | **基礎設施 Proxy 參數設定** | 可能導致 Production 部署時 HTTPS Cookie 無法寫入，引發無限登入迴圈。 | 將 `trusted_hosts` 改為環境變數設定，對齊 Docker 網路架構。 |
+| **P1** | **輸入邊界與長度限制** | `ScanRequest` 無長度限制，可能導致記憶體耗盡（OOM）引發服務中斷。 | 在 `models.py` 補上 Pydantic `Field(max_length=...)`，並設定 Nginx `client_max_body_size`。 |
+| **P1** | **Pydantic Config 相容性** | 可能導致 `.env` 敏感機密變數載入失敗，破壞加密機制。 | 升級為 V2 寫法 `model_config = SettingsConfigDict(...)`。 |
+| **P2** | **加入 API 速率限制** | LLM 資源被惡意或異常耗用，造成超額帳單。 | 導入 `slowapi`，基於登入的 User Email 實施 Rate Limiting。 |
+
+---
+
+## 6. 總結
+
+本專案在身分認證、敏感錯誤去識別化以及 LLM 提示工程（Prompt Engineering / Structured Outputs）上，已具備相當成熟的防禦觀念，是一套設計良好的內部輔助工具。目前最需優先處理的是 **Nginx 與 FastAPI 之間的網路信任邊界（Proxy Headers）對齊**，以及**應用層對使用者輸入長度的約束**。完成 P0 與 P1 修復後，系統在面對極端輸入與部署環境變化時，將具備高度的可用性與穩定性。
