@@ -14,7 +14,8 @@ FastAPI Backend
 ├── /api/scan                GPT-5.5 Vision 名片 OCR（Structured Outputs）
 ├── /api/company-lookup      Gemini Grounding 查詢公司業務資料（手動觸發）
 ├── /api/collaboration-hint  GPT-5.5 生成合作機會描述
-└── /api/send                Jinja2 渲染樣板 + Gmail API 寄信
+├── /api/send                Jinja2 渲染樣板 + Gmail API 寄信
+└── /api/save-contact        Google People API 新增聯絡人
 
 Frontend (SPA)
 └── static/index.html   手機相機拍攝 + 4 步驟流程 UI
@@ -50,7 +51,7 @@ pip install -r requirements.txt
    - **Google People API**
 4. 設定 OAuth 同意畫面（APIs & Services → OAuth consent screen）：
    - User Type：**External**
-   - Scopes 加入：`userinfo.email`、`userinfo.profile`、`openid`、`gmail.send`
+   - Scopes 加入：`userinfo.email`、`userinfo.profile`、`openid`、`gmail.send`、`contacts`
    - Test users 加入你自己的 Gmail（Testing 狀態下必填）
 5. 建立 OAuth 2.0 憑證（Credentials → Create Credentials → OAuth 2.0 Client ID）：
    - 類型：**Web application**
@@ -165,6 +166,7 @@ python -m uvicorn app.main:app --port 8000
 ③ 確認 AI 識別結果（可手動修正）
 ④ 選用：點擊「查詢公司資料」→ 顯示公司簡介與合作機會描述（可編輯或清空）
 ⑤ 一鍵寄出 Gmail 問候信
+⑥ 選用：點擊「將名片資料存入聯絡人」→ 確認欄位後存入 Google 聯絡人
 ```
 
 ---
