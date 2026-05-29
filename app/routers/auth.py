@@ -36,7 +36,8 @@ oauth.register(
     client_kwargs={
         "scope": (
             "openid email profile "
-            "https://www.googleapis.com/auth/gmail.send"
+            "https://www.googleapis.com/auth/gmail.send "
+            "https://www.googleapis.com/auth/contacts"
         ),
     },
 )

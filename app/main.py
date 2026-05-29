@@ -6,7 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.config import get_settings
-from app.routers import auth, card, mail, company
+from app.routers import auth, card, mail, company, contacts
 
 # ─── Logging 設定 ──────────────────────────────────────────
 logging.basicConfig(
@@ -63,6 +63,7 @@ app.include_router(auth.router)
 app.include_router(card.router)
 app.include_router(mail.router)
 app.include_router(company.router)
+app.include_router(contacts.router)
 
 # ─── Static files (SPA frontend) ──────────────────────────
 app.mount("/static", StaticFiles(directory="static"), name="static")

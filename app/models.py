@@ -65,6 +65,25 @@ class SendResponse(BaseModel):
     recipient_email: Optional[str] = ""
 
 
+class SaveContactRequest(BaseModel):
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
+    email: Optional[str] = ""
+    company: Optional[str] = ""
+    title: Optional[str] = ""
+    phone: Optional[str] = ""
+    mobile: Optional[str] = ""
+    address: Optional[AddressInfo] = None
+    website: Optional[str] = ""
+    notes: Optional[str] = ""
+
+
+class SaveContactResponse(BaseModel):
+    success: bool
+    contact_name: str
+    resource_name: str
+
+
 class UserSession(BaseModel):
     email: str
     name: str

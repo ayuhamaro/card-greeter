@@ -752,10 +752,88 @@
       <div class="success-title">問候信已寄出！</div>
       <div class="success-detail" id="success-detail"></div>
     </div>
-    <button class="btn btn-secondary" id="btn-save-contact" onclick="saveToContacts()" style="margin-bottom:10px">
-      👤 將名片資料存入聯絡人
-    </button>
-    <button class="btn btn-primary" onclick="resetAll()">繼續掃描下一張名片</button>
+
+    <!-- 初始按鈕組 -->
+    <div id="step4-buttons">
+      <button class="btn btn-secondary" onclick="saveToContacts()" style="margin-bottom:10px">
+        👤 將名片資料存入聯絡人
+      </button>
+      <button class="btn btn-primary" onclick="resetAll()">繼續掃描下一張名片</button>
+    </div>
+
+    <!-- 聯絡人資料表單（點擊按鈕後展開） -->
+    <div id="contact-form-section" style="display:none">
+      <div class="section-title" style="font-size:17px; margin-bottom:6px">確認聯絡人資料</div>
+      <div class="section-subtitle">可直接修正，確認後存入 Google 聯絡人</div>
+
+      <div class="card-info-grid">
+        <div class="card-info-row">
+          <span class="card-info-key">姓氏</span>
+          <input class="card-info-val" id="contact-last-name" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">名字</span>
+          <input class="card-info-val" id="contact-first-name" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">Email</span>
+          <input class="card-info-val" id="contact-email" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">公司</span>
+          <input class="card-info-val" id="contact-company" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">職稱</span>
+          <input class="card-info-val" id="contact-title" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">電話</span>
+          <input class="card-info-val" id="contact-phone" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">行動電話</span>
+          <input class="card-info-val" id="contact-mobile" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">網站</span>
+          <input class="card-info-val" id="contact-website" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">街道地址</span>
+          <input class="card-info-val" id="contact-address-street" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">城市</span>
+          <input class="card-info-val" id="contact-address-city" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">州／省</span>
+          <input class="card-info-val" id="contact-address-region" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">郵遞區號</span>
+          <input class="card-info-val" id="contact-address-postal" type="text" placeholder="（選填）">
+        </div>
+        <div class="card-info-row">
+          <span class="card-info-key">國家</span>
+          <input class="card-info-val" id="contact-address-country" type="text" placeholder="（選填）">
+        </div>
+      </div>
+
+      <div class="field" style="margin-top:16px">
+        <label>附註</label>
+        <textarea id="contact-notes"
+                  style="width:100%; padding:12px 14px; border:1.5px solid var(--border);
+                         border-radius:8px; background:var(--card-bg); font-size:13px;
+                         font-family:var(--font-serif); color:var(--ink); line-height:1.7;
+                         resize:vertical; min-height:120px"
+                  placeholder="（選填）"></textarea>
+      </div>
+
+      <button class="btn btn-accent" onclick="submitSaveContact()">儲存聯絡人</button>
+      <button class="btn btn-secondary" style="margin-top:10px" onclick="resetAll()">略過，繼續掃描</button>
+    </div>
   </div>
 
 </main>
@@ -1098,10 +1176,89 @@
   }
 
 
-  // Phase 2: 存入 Google 聯絡人
+  // ─── 聯絡人存入流程 ─────────────────────────────────────────
   function saveToContacts() {
-    // TODO: Phase 2 實作
-    showToast('聯絡人存入功能即將推出', 'success');
+    const card = cardState || {};
+
+    document.getElementById('contact-last-name').value = card.last_name || '';
+    document.getElementById('contact-first-name').value = card.first_name || '';
+    document.getElementById('contact-email').value =
+      document.getElementById('info-email').value || '';
+    document.getElementById('contact-company').value =
+      document.getElementById('info-company').value || '';
+    document.getElementById('contact-title').value =
+      document.getElementById('info-title').value || '';
+    document.getElementById('contact-phone').value = card.phone || '';
+    document.getElementById('contact-mobile').value = card.mobile || '';
+    document.getElementById('contact-website').value = card.website || '';
+    document.getElementById('contact-address-street').value = card.address?.street || '';
+    document.getElementById('contact-address-city').value = card.address?.city || '';
+    document.getElementById('contact-address-region').value = card.address?.region || '';
+    document.getElementById('contact-address-postal').value = card.address?.postal_code || '';
+    document.getElementById('contact-address-country').value = card.address?.country || '';
+
+    const summary =
+      document.getElementById('company-summary-text')?.textContent.trim() || '';
+    const hint = document.getElementById('collab-hint-text')?.value.trim() || '';
+    let notes = '';
+    if (summary && hint) notes = summary + '\n\n' + hint;
+    else notes = summary || hint;
+    document.getElementById('contact-notes').value = notes;
+
+    document.getElementById('step4-buttons').style.display = 'none';
+    document.getElementById('contact-form-section').style.display = 'block';
+  }
+
+  async function submitSaveContact() {
+    showLoading('正在儲存至 Google 聯絡人…');
+    try {
+      const res = await fetch('/api/save-contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: document.getElementById('contact-first-name').value.trim(),
+          last_name: document.getElementById('contact-last-name').value.trim(),
+          email: document.getElementById('contact-email').value.trim(),
+          company: document.getElementById('contact-company').value.trim(),
+          title: document.getElementById('contact-title').value.trim(),
+          phone: document.getElementById('contact-phone').value.trim(),
+          mobile: document.getElementById('contact-mobile').value.trim(),
+          address: {
+            street: document.getElementById('contact-address-street').value.trim(),
+            city: document.getElementById('contact-address-city').value.trim(),
+            region: document.getElementById('contact-address-region').value.trim(),
+            postal_code: document.getElementById('contact-address-postal').value.trim(),
+            country: document.getElementById('contact-address-country').value.trim(),
+          },
+          website: document.getElementById('contact-website').value.trim(),
+          notes: document.getElementById('contact-notes').value.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        if (res.status === 401) {
+          showToast('Google 授權已過期，請重新登入', 'error');
+          setTimeout(() => window.location.href = '/auth/logout', 2000);
+          return;
+        }
+        if (res.status === 403) {
+          showToast('缺少聯絡人權限，請重新登入以授權', 'error');
+          setTimeout(() => window.location.href = '/auth/logout', 2000);
+          return;
+        }
+        throw new Error(err.detail || '儲存失敗');
+      }
+
+      const data = await res.json();
+      showToast(`已將 ${data.contact_name} 存入 Google 聯絡人`, 'success');
+      setTimeout(() => resetAll(), 1500);
+
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      hideLoading();
+    }
   }
 
   function resetAll() {
@@ -1118,6 +1275,9 @@
     document.getElementById('camera-wrapper').style.display = 'block';
     document.getElementById('capture-btn').style.display = 'block';
     document.getElementById('retake-row').style.display = 'none';
+    // 重置 Step 4 聯絡人表單狀態
+    document.getElementById('step4-buttons').style.display = 'block';
+    document.getElementById('contact-form-section').style.display = 'none';
     setStep(2);
     startCamera();
   }
