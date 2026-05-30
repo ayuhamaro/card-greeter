@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from app.models import SaveContactRequest, SaveContactResponse
-from app.services.contacts_service import ContactsService
+from app.services.contacts import ContactsService
 from app.routers.auth import require_auth, update_vault
 from googleapiclient.errors import HttpError
 

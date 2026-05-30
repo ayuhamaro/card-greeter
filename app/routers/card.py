@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from app.models import ScanRequest, ScanResponse
-from app.services.vision_service import VisionService
+from app.services.vision import VisionService
 from app.routers.auth import require_auth
 
 logger = logging.getLogger(__name__)

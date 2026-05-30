@@ -26,3 +26,6 @@ pydantic-settings==2.6.1
 
 # Grounding
 google-genai==1.16.0
+
+# Google Cloud Pub/Sub
+google-cloud-pubsub==2.26.0

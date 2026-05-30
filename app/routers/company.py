@@ -4,8 +4,8 @@ from app.models import (
     CompanyLookupRequest, CompanyLookupResponse,
     CollaborationHintRequest, CollaborationHintResponse,
 )
-from app.services.company_service import CompanyService
-from app.services.collaboration_service import CollaborationService
+from app.services.company import CompanyService
+from app.services.collaboration import CollaborationService
 from app.routers.auth import require_auth
 
 logger = logging.getLogger(__name__)

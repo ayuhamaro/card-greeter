@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -7,6 +8,7 @@ from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.config import get_settings
 from app.routers import auth, card, mail, company, contacts
+from app.services.pubsub import PubSubService, build_publisher
 
 # ─── Logging 設定 ──────────────────────────────────────────
 logging.basicConfig(
@@ -17,6 +19,36 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
+
+# ─── Lifespan ─────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if settings.pubsub_enabled:
+        missing = [
+            name for name, val in [
+                ("GOOGLE_SA_CREDENTIALS_JSON", settings.google_sa_credentials_json),
+                ("PUBSUB_PROJECT_ID", settings.pubsub_project_id),
+                ("PUBSUB_TOPIC_ID", settings.pubsub_topic_id),
+            ] if not val
+        ]
+        if missing:
+            raise RuntimeError(f"PUBSUB_ENABLED=true but missing env vars: {', '.join(missing)}")
+
+        publisher = build_publisher(settings.google_sa_credentials_json)
+        topic_path = publisher.topic_path(settings.pubsub_project_id, settings.pubsub_topic_id)
+        app.state.pubsub = PubSubService(publisher, topic_path)
+        logger.info(f"PubSub publisher initialized. topic={topic_path}")
+    else:
+        app.state.pubsub = None
+        logger.info("PubSub disabled (PUBSUB_ENABLED=false).")
+
+    yield
+
+    if settings.pubsub_enabled and app.state.pubsub is not None:
+        app.state.pubsub._publisher.close()
+        logger.info("PubSub publisher closed.")
+
+
 # ─── FastAPI App ───────────────────────────────────────────
 app = FastAPI(
     title="Business Card Greeter",
@@ -24,6 +56,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs" if settings.app_base_url.startswith("http://localhost") else None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 # ─── Global Exception Handler ─────────────────────────────

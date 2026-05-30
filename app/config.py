@@ -1,4 +1,6 @@
+import json
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from functools import lru_cache
 from pathlib import Path
 
@@ -24,12 +26,32 @@ class Settings(BaseSettings):
     # Sender identity
     sender_name: str
     sender_bio_file: str
+    sender_line_id: str = ""
 
     # Collaboration hints YAML (not in repo)
     collaboration_hints_file: str
 
     # Access control
     allowed_email: str
+
+    # Google Cloud Pub/Sub
+    pubsub_enabled: bool = False
+    google_sa_credentials_json: str = ""  # Service Account JSON 內容（非檔案路徑）
+    pubsub_project_id: str = ""
+    pubsub_topic_id: str = ""
+
+    @field_validator("google_sa_credentials_json")
+    @classmethod
+    def validate_sa_credentials(cls, v: str) -> str:
+        if not v:
+            return v
+        try:
+            parsed = json.loads(v)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"GOOGLE_SA_CREDENTIALS_JSON is not valid JSON: {e}")
+        if parsed.get("type") != "service_account":
+            raise ValueError('GOOGLE_SA_CREDENTIALS_JSON must have "type": "service_account"')
+        return v
 
     # App
     app_base_url: str = "http://localhost:8000"

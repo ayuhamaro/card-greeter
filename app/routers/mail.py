@@ -1,23 +1,34 @@
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Optional
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from app.config import get_settings
 from app.models import SendRequest, SendResponse
-from app.services.template_service import TemplateService
-from app.services.gmail_service import GmailService
+from app.services.template import TemplateService
+from app.services.gmail import GmailService
+from app.services.pubsub import PubSubService
+from app.libs.card_event import schedule_card_event
 from app.routers.auth import require_auth, update_vault
 from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["mail"])
 
+settings = get_settings()
 template_service = TemplateService()
 gmail_service = GmailService()
+
+
+def get_pubsub(request: Request) -> Optional[PubSubService]:
+    return request.app.state.pubsub
 
 
 @router.post("/send", response_model=SendResponse)
 async def send_greeting(
     request: Request,
     payload: SendRequest,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(require_auth),
+    pubsub: Optional[PubSubService] = Depends(get_pubsub),
 ):
     card = payload.card
     event_name = payload.event_name
@@ -73,6 +84,9 @@ async def send_greeting(
     # 回寫確保下一次請求不會用到過期的 token
     if current_token and current_token != access_token:
         update_vault(request, current_token)
+
+    # ─── Pub/Sub 事件發布（背景執行，不阻塞回應）────────────────
+    schedule_card_event(background_tasks, pubsub, settings, sender_email, event_name, card)
 
     return SendResponse(
         success=True,
