@@ -11,10 +11,9 @@ _PUBSUB_SCOPES = ["https://www.googleapis.com/auth/pubsub"]
 _TZ_TAIPEI = timezone(timedelta(hours=8))
 
 
-def build_publisher(credentials_json: str) -> pubsub_v1.PublisherClient:
-    sa_info = json.loads(credentials_json)
-    credentials = service_account.Credentials.from_service_account_info(
-        sa_info, scopes=_PUBSUB_SCOPES
+def build_publisher(credentials_file: str) -> pubsub_v1.PublisherClient:
+    credentials = service_account.Credentials.from_service_account_file(
+        credentials_file, scopes=_PUBSUB_SCOPES
     )
     return pubsub_v1.PublisherClient(credentials=credentials)
 

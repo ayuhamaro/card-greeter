@@ -36,21 +36,24 @@ class Settings(BaseSettings):
 
     # Google Cloud Pub/Sub
     pubsub_enabled: bool = False
-    google_sa_credentials_json: str = ""  # Service Account JSON 內容（非檔案路徑）
+    google_sa_credentials_file: str = ""  # Service Account JSON 檔案絕對路徑
     pubsub_project_id: str = ""
     pubsub_topic_id: str = ""
 
-    @field_validator("google_sa_credentials_json")
+    @field_validator("google_sa_credentials_file")
     @classmethod
-    def validate_sa_credentials(cls, v: str) -> str:
+    def validate_sa_credentials_file(cls, v: str) -> str:
         if not v:
             return v
+        path = Path(v)
+        if not path.exists():
+            raise ValueError(f"GOOGLE_SA_CREDENTIALS_FILE not found: {v}")
         try:
-            parsed = json.loads(v)
+            parsed = json.loads(path.read_text())
         except json.JSONDecodeError as e:
-            raise ValueError(f"GOOGLE_SA_CREDENTIALS_JSON is not valid JSON: {e}")
+            raise ValueError(f"GOOGLE_SA_CREDENTIALS_FILE is not valid JSON: {e}")
         if parsed.get("type") != "service_account":
-            raise ValueError('GOOGLE_SA_CREDENTIALS_JSON must have "type": "service_account"')
+            raise ValueError('GOOGLE_SA_CREDENTIALS_FILE must have "type": "service_account"')
         return v
 
     # App

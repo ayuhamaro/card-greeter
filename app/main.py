@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     if settings.pubsub_enabled:
         missing = [
             name for name, val in [
-                ("GOOGLE_SA_CREDENTIALS_JSON", settings.google_sa_credentials_json),
+                ("GOOGLE_SA_CREDENTIALS_FILE", settings.google_sa_credentials_file),
                 ("PUBSUB_PROJECT_ID", settings.pubsub_project_id),
                 ("PUBSUB_TOPIC_ID", settings.pubsub_topic_id),
             ] if not val
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
         if missing:
             raise RuntimeError(f"PUBSUB_ENABLED=true but missing env vars: {', '.join(missing)}")
 
-        publisher = build_publisher(settings.google_sa_credentials_json)
+        publisher = build_publisher(settings.google_sa_credentials_file)
         topic_path = publisher.topic_path(settings.pubsub_project_id, settings.pubsub_topic_id)
         app.state.pubsub = PubSubService(publisher, topic_path)
         logger.info(f"PubSub publisher initialized. topic={topic_path}")
